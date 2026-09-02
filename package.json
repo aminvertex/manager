@@ -1,0 +1,29 @@
+  {
+    "name": "amatis",
+    "version": "1.0.0",
+    "private": true,
+    "description": "Rasha Amatis - Employee Performance Management System",
+    "workspaces": [
+      "apps/*",
+      "packages/*"
+    ],
+    "scripts": {
+      "dev": "concurrently \"npm run dev:api\" \"npm run dev:web\"",
+      "dev:api": "npm run dev --workspace=@amatis/api",
+      "dev:web": "npm run dev --workspace=@amatis/web",
+      "build": "npm run build --workspaces --if-present",
+      "lint": "npm run lint --workspaces --if-present",
+      "test": "npm run test --workspaces --if-present",
+      "db:generate": "npm run db:generate --workspace=@amatis/api",
+      "db:migrate": "npm run db:migrate --workspace=@amatis/api",
+      "db:seed": "npm run db:seed --workspace=@amatis/api",
+      "db:studio": "npm run db:studio --workspace=@amatis/api"
+    },
+    "devDependencies": {
+      "concurrently": "^9.1.2",
+      "typescript": "^5.7.3"
+    },
+    "engines": {
+      "node": ">=20.0.0"
+    }
+  }

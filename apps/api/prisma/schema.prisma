@@ -1,0 +1,779 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String           @id @default(cuid())
+  mobile             String           @unique
+  passwordHash       String
+  isActive           Boolean          @default(true)
+  mustChangePassword Boolean          @default(true)
+  loginAttempts      Int              @default(0)
+  lockedUntil        DateTime?
+  lastLoginAt        DateTime?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  deletedAt          DateTime?
+  auditLogs          AuditLog[]
+  employeeProfile    EmployeeProfile?
+  notifications      Notification[]
+  refreshTokens      RefreshToken[]
+  userRoles          UserRole[]
+  taskComments       TaskComment[]
+  chatRooms          ChatRoomMember[]
+  chatMessages       ChatMessage[]
+
+  @@index([mobile])
+  @@map("users")
+}
+
+model Role {
+  id              String           @id @default(cuid())
+  code            String           @unique
+  name            String
+  description     String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  rolePermissions RolePermission[]
+  userRoles       UserRole[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id              String           @id @default(cuid())
+  code            String           @unique
+  name            String
+  module          String
+  description     String?
+  createdAt       DateTime         @default(now())
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+model UserRole {
+  id        String   @id @default(cuid())
+  userId    String
+  roleId    String
+  createdAt DateTime @default(now())
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  id           String     @id @default(cuid())
+  roleId       String
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("refresh_tokens")
+}
+
+model EmployeeProfile {
+  id                  String                 @id @default(cuid())
+  userId              String                 @unique
+  employeeCode        String                 @unique
+  firstName           String
+  lastName            String
+  age                 Int?
+  gender              String?
+  maritalStatus       String?
+  personnelCode       String?
+  position            String?
+  primaryProjectId    String?
+  supervisorId        String?
+  startDate           DateTime?
+  collaborationStatus String                 @default("ACTIVE")
+  collaborationType   String?
+  skillLevel          String?
+  email               String?
+  avatarUrl           String?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  deletedAt           DateTime?
+  criticalIncidents   CriticalIncident[]
+  dailyChecklists     DailyChecklist[]
+  kpis                EmployeeKPI[]
+  primaryProject      Project?               @relation("PrimaryProject", fields: [primaryProjectId], references: [id])
+  supervisor          EmployeeProfile?       @relation("SupervisorRelation", fields: [supervisorId], references: [id])
+  subordinates        EmployeeProfile[]      @relation("SupervisorRelation")
+  user                User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  monthlyReviews      MonthlyReview[]
+  projectMembers      ProjectMember[]
+  projectPerformances ProjectPerformance[]
+  managedProjects     Project[]          @relation("ProjectManager")
+  psychometricCases   PsychometricCase[]
+  qualityControls     QualityControl[]       @relation("QcEmployee")
+  supervisorQcs       QualityControl[]       @relation("QcSupervisor")
+  evaluations         SupervisorEvaluation[] @relation("EvalEmployee")
+  givenEvaluations    SupervisorEvaluation[] @relation("EvalSupervisor")
+  assignedTasks       TaskAssignment[]       @relation("AssignedBy")
+  taskAssignments     TaskAssignment[]       @relation("EmployeeTasks")
+  trainings           Training[]
+  weeklyChecklists    WeeklyChecklist[]
+  perfEvalEmployee    PerformanceEvaluation[] @relation("PerfEvalEmployee")
+  perfEvalSupervisor  PerformanceEvaluation[] @relation("PerfEvalSupervisor")
+  taskHistoryChanges  TaskStatusHistory[]    @relation("TaskHistoryChanger")
+  quizAttempts        QuizAttempt[]          @relation("QuizAttemptEmployee")
+
+  @@index([supervisorId])
+  @@index([employeeCode])
+  @@map("employee_profiles")
+}
+
+model Project {
+  id               String            @id @default(cuid())
+  name             String
+  code             String            @unique
+  description      String?
+  logoUrl          String?
+  status           String            @default("ACTIVE")
+  managerId        String?
+  manager          EmployeeProfile? @relation("ProjectManager", fields: [managerId], references: [id])
+  startDate        DateTime?
+  endDate          DateTime?
+  isActive         Boolean           @default(true)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  deletedAt        DateTime?
+  primaryEmployees EmployeeProfile[] @relation("PrimaryProject")
+  members          ProjectMember[]
+  taskAssignments  TaskAssignment[]
+  taskTemplates    TaskTemplate[]
+  taskProjects     TaskProject[]
+  chatRooms        ChatRoom[]
+
+  @@index([code])
+  @@index([status])
+  @@map("projects")
+}
+
+model ProjectMember {
+  id         String          @id @default(cuid())
+  projectId  String
+  employeeId String
+  role       String          @default("MEMBER")
+  joinedAt   DateTime        @default(now())
+  employee   EmployeeProfile @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  project    Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, employeeId])
+  @@map("project_members")
+}
+
+model Setting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
+  category  String
+  label     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+  @@map("settings")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String
+  entityType String
+  entityId   String?
+  oldValue   Json?
+  newValue   Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  user       User?    @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model Notification {
+  id         String    @id @default(cuid())
+  userId     String
+  type       String
+  title      String
+  message    String
+  entityType String?
+  entityId   String?
+  isRead     Boolean   @default(false)
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+model KPIConfiguration {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("kpi_configurations")
+}
+
+model TaskTemplate {
+  id                         String           @id @default(cuid())
+  taskCode                   String           @unique
+  name                       String
+  category                   String
+  projectId                  String?
+  description                String?
+  expectedOutput             String?
+  standardDurationMinutes    Int?
+  priority                   String           @default("MEDIUM")
+  frequency                  String?
+  requiredSkillLevel         String?
+  requiresSupervisorApproval Boolean          @default(false)
+  relatedKpi                 String?
+  isActive                   Boolean          @default(true)
+  createdAt                  DateTime         @default(now())
+  updatedAt                  DateTime         @updatedAt
+  deletedAt                  DateTime?
+  assignments                TaskAssignment[]
+  project                    Project?         @relation(fields: [projectId], references: [id])
+
+  @@index([category])
+  @@index([projectId])
+  @@map("task_templates")
+}
+
+model TaskAssignment {
+  id                    String                @id @default(cuid())
+  assignmentCode        String                @unique
+  taskTemplateId        String?
+  employeeId            String
+  projectId             String?
+  assignedById          String?
+  status                String                @default("ASSIGNED")
+  progress              Int                   @default(0)
+  priority              String                @default("MEDIUM")
+  deadline              DateTime?
+  startTime             DateTime?
+  completionTime        DateTime?
+  actualDurationMinutes Int?
+  output                String?
+  revisionCount         Int                   @default(0)
+  qualityScore          Float?
+  supervisorScore       Float?
+  isDelayed             Boolean               @default(false)
+  delayDays             Int                   @default(0)
+  isLateDelivery        Boolean               @default(false)
+  notes                 String?
+  isPersonal            Boolean               @default(false)
+  isLocked              Boolean               @default(false)
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+  deletedAt             DateTime?
+  qualityControl        QualityControl?
+  evaluation            SupervisorEvaluation?
+  assignedBy            EmployeeProfile?      @relation("AssignedBy", fields: [assignedById], references: [id])
+  employee              EmployeeProfile       @relation("EmployeeTasks", fields: [employeeId], references: [id])
+  project               Project?              @relation(fields: [projectId], references: [id])
+  taskTemplate          TaskTemplate?         @relation(fields: [taskTemplateId], references: [id])
+  attachments           TaskAttachment[]
+  comments              TaskComment[]
+  revisions             TaskRevision[]
+  statusHistory         TaskStatusHistory[]
+  dependenciesFrom      TaskDependency[]     @relation("TaskDepFrom")
+  dependenciesTo        TaskDependency[]     @relation("TaskDepTo")
+  projects              TaskProject[]        @relation("TaskProjects")
+
+  @@index([employeeId])
+  @@index([projectId])
+  @@index([status])
+  @@index([deadline])
+  @@index([createdAt])
+  @@map("task_assignments")
+}
+
+model TaskDependency {
+  id         String         @id @default(cuid())
+  taskId     String         // this task
+  dependsOn  String         // blocked by this task
+  task       TaskAssignment @relation("TaskDepFrom", fields: [taskId], references: [id], onDelete: Cascade)
+  dependent  TaskAssignment @relation("TaskDepTo", fields: [dependsOn], references: [id], onDelete: Cascade)
+  createdAt  DateTime       @default(now())
+
+  @@unique([taskId, dependsOn])
+  @@index([taskId])
+  @@index([dependsOn])
+  @@map("task_dependencies")
+}
+
+model TaskProject {
+  id        String         @id @default(cuid())
+  taskId    String
+  projectId String
+  task      TaskAssignment @relation("TaskProjects", fields: [taskId], references: [id], onDelete: Cascade)
+  project   Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, projectId])
+  @@index([projectId])
+  @@map("task_projects")
+}
+
+model TaskStatusHistory {
+  id               String         @id @default(cuid())
+  taskAssignmentId String
+  fromStatus       String?
+  toStatus         String
+  changedById      String?
+  comment          String?
+  createdAt        DateTime       @default(now())
+  task             TaskAssignment @relation(fields: [taskAssignmentId], references: [id], onDelete: Cascade)
+  changedBy        EmployeeProfile? @relation("TaskHistoryChanger", fields: [changedById], references: [id])
+
+  @@index([taskAssignmentId])
+  @@index([createdAt])
+  @@map("task_status_history")
+}
+
+model TaskComment {
+  id               String         @id @default(cuid())
+  taskAssignmentId String
+  authorId         String
+  message          String
+  createdAt        DateTime       @default(now())
+  task             TaskAssignment @relation(fields: [taskAssignmentId], references: [id], onDelete: Cascade)
+  author           User           @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([taskAssignmentId])
+  @@map("task_comments")
+}
+
+model TaskAttachment {
+  id               String         @id @default(cuid())
+  taskAssignmentId String
+  fileName         String
+  originalName     String
+  mimeType         String?
+  size             Int?
+  storageKey       String
+  storageUrl       String?
+  version          Int            @default(1)
+  uploadedById     String?
+  createdAt        DateTime       @default(now())
+  task             TaskAssignment @relation(fields: [taskAssignmentId], references: [id], onDelete: Cascade)
+
+  @@index([taskAssignmentId])
+  @@map("task_attachments")
+}
+
+model TaskRevision {
+  id               String         @id @default(cuid())
+  taskAssignmentId String
+  revisionNumber   Int
+  requestedById    String?
+  requestedAt      DateTime       @default(now())
+  reason           String?
+  comment          String?
+  dueDate          DateTime?
+  submittedAt      DateTime?
+  resolvedAt       DateTime?
+  status           String         @default("PENDING")
+  task             TaskAssignment @relation(fields: [taskAssignmentId], references: [id], onDelete: Cascade)
+
+  @@unique([taskAssignmentId, revisionNumber])
+  @@index([taskAssignmentId])
+  @@map("task_revisions")
+}
+
+model DailyChecklist {
+  id             String          @id @default(cuid())
+  employeeId     String
+  date           DateTime        @db.Date
+  items          Json
+  completionRate Float           @default(0)
+  notes          String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  employee       EmployeeProfile @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, date])
+  @@index([date])
+  @@map("daily_checklists")
+}
+
+model WeeklyChecklist {
+  id                String          @id @default(cuid())
+  employeeId        String
+  weekStart         DateTime        @db.Date
+  weekEnd           DateTime        @db.Date
+  items             Json
+  completionRate    Float           @default(0)
+  performanceScore  Float?
+  strengths         String?
+  improvementAreas  String?
+  correctiveActions String?
+  actionOwner       String?
+  actionDeadline    DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  employee          EmployeeProfile @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, weekStart])
+  @@index([weekStart])
+  @@map("weekly_checklists")
+}
+
+model SupervisorEvaluation {
+  id               String          @id @default(cuid())
+  taskAssignmentId String          @unique
+  employeeId       String
+  supervisorId     String
+  scores           Json
+  averageScore     Float?
+  score100         Float?
+  result           String          @default("PENDING")
+  comment          String?
+  evaluatedAt      DateTime        @default(now())
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  employee         EmployeeProfile @relation("EvalEmployee", fields: [employeeId], references: [id])
+  supervisor       EmployeeProfile @relation("EvalSupervisor", fields: [supervisorId], references: [id])
+  task             TaskAssignment  @relation(fields: [taskAssignmentId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@index([supervisorId])
+  @@map("supervisor_evaluations")
+}
+
+model QualityControl {
+  id                  String           @id @default(cuid())
+  taskAssignmentId    String           @unique
+  employeeId          String
+  supervisorId        String?
+  projectId           String?
+  outputType          String?
+  scientificError     Boolean          @default(false)
+  calculationError    Boolean          @default(false)
+  interpretationError Boolean          @default(false)
+  documentationDefect Boolean          @default(false)
+  writingDefect       Boolean          @default(false)
+  protocolViolation   Boolean          @default(false)
+  needRevision        Boolean          @default(false)
+  revisionCount       Int              @default(0)
+  result              String           @default("PENDING")
+  qualityScore        Float?
+  comment             String?
+  evaluatedAt         DateTime         @default(now())
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  employee            EmployeeProfile  @relation("QcEmployee", fields: [employeeId], references: [id])
+  supervisor          EmployeeProfile? @relation("QcSupervisor", fields: [supervisorId], references: [id])
+  task                TaskAssignment   @relation(fields: [taskAssignmentId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@index([projectId])
+  @@map("quality_controls")
+}
+
+model PsychometricCase {
+  id                   String          @id @default(cuid())
+  caseCode             String          @unique
+  employeeId           String
+  projectId            String?
+  assessmentType       String?
+  tool                 String?
+  assessmentStatus     String          @default("NOT_STARTED")
+  analysisStatus       String          @default("NOT_STARTED")
+  interpretationStatus String          @default("NOT_STARTED")
+  reportStatus         String          @default("NOT_STARTED")
+  feedbackStatus       String          @default("NOT_STARTED")
+  startTime            DateTime?
+  endTime              DateTime?
+  totalDurationMinutes Int?
+  needRevision         Boolean         @default(false)
+  supervisorApproval   String?
+  notes                String?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  employee             EmployeeProfile @relation(fields: [employeeId], references: [id])
+
+  @@index([employeeId])
+  @@index([projectId])
+  @@map("psychometric_cases")
+}
+
+model Training {
+  id                 String          @id @default(cuid())
+  employeeId         String
+  title              String
+  type               String
+  instructor         String?
+  durationHours      Float?
+  status             String          @default("PLANNED")
+  examScore          Float?
+  supervisorScore    Float?
+  retrainingRequired Boolean         @default(false)
+  notes              String?
+  trainingDate       DateTime?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  employee           EmployeeProfile @relation(fields: [employeeId], references: [id])
+  quiz               Quiz?
+
+  @@index([employeeId])
+  @@index([status])
+  @@map("trainings")
+}
+
+model Quiz {
+  id          String      @id @default(cuid())
+  trainingId  String      @unique
+  title       String
+  passScore   Int         @default(70)
+  timeMinutes Int?        @default(15)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  training    Training    @relation(fields: [trainingId], references: [id], onDelete: Cascade)
+  questions   QuizQuestion[]
+  attempts    QuizAttempt[]
+
+  @@index([trainingId])
+  @@map("quizzes")
+}
+
+model QuizQuestion {
+  id        String  @id @default(cuid())
+  quizId    String
+  text      String
+  options   Json
+  correct   Int
+  score     Float   @default(1)
+  quiz      Quiz    @relation(fields: [quizId], references: [id], onDelete: Cascade)
+
+  @@index([quizId])
+  @@map("quiz_questions")
+}
+
+model QuizAttempt {
+  id            String   @id @default(cuid())
+  quizId        String
+  employeeId    String
+  answers       Json
+  score         Float
+  passed        Boolean
+  completedAt   DateTime @default(now())
+  quiz          Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  employee      EmployeeProfile @relation("QuizAttemptEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([quizId])
+  @@index([employeeId])
+  @@map("quiz_attempts")
+}
+
+model CertificateTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  body        String
+  variables   Json
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("certificate_templates")
+}
+
+model CriticalIncident {
+  id           String          @id @default(cuid())
+  employeeId   String
+  severity     String
+  type         String
+  description  String
+  reportedById String?
+  supervisorId String?
+  resolution   String?
+  status       String          @default("OPEN")
+  incidentDate DateTime        @default(now())
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  resolvedAt   DateTime?
+  employee     EmployeeProfile @relation(fields: [employeeId], references: [id])
+
+  @@index([employeeId])
+  @@index([severity])
+  @@map("critical_incidents")
+}
+
+model EmployeeKPI {
+  id             String          @id @default(cuid())
+  employeeId     String
+  period         String
+  periodType     String          @default("MONTHLY")
+  scores         Json
+  weightedScore  Float
+  classification String?
+  penalty        Float           @default(0)
+  finalScore     Float
+  calculatedAt   DateTime        @default(now())
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  employee       EmployeeProfile @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, period, periodType])
+  @@index([employeeId])
+  @@index([period])
+  @@map("employee_kpis")
+}
+
+model ProjectPerformance {
+  id              String           @id @default(cuid())
+  projectId       String
+  employeeId      String?
+  period          String
+  totalTasks      Int              @default(0)
+  completedTasks  Int              @default(0)
+  completionRate  Float            @default(0)
+  onTimeRate      Float            @default(0)
+  averageQuality  Float?
+  revisionCount   Int              @default(0)
+  averageDuration Float?
+  finalScore      Float?
+  calculatedAt    DateTime         @default(now())
+  employee        EmployeeProfile? @relation(fields: [employeeId], references: [id])
+
+  @@unique([projectId, employeeId, period])
+  @@index([projectId])
+  @@index([employeeId])
+  @@map("project_performances")
+}
+
+model MonthlyReview {
+  id                  String          @id @default(cuid())
+  employeeId          String
+  projectId           String?
+  period              String
+  totalTasks          Int             @default(0)
+  completionRate      Float           @default(0)
+  onTimeRate          Float           @default(0)
+  averageQuality      Float?
+  revisionCount       Int             @default(0)
+  checklistCompletion Float?
+  numberOfCases       Int?
+  averageDuration     Float?
+  kpiScore            Float?
+  performanceRank     String?
+  strengths           String?
+  improvementAreas    String?
+  correctiveActions   String?
+  nextMonthPlan       String?
+  finalStatus         String          @default("DRAFT")
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  employee            EmployeeProfile @relation(fields: [employeeId], references: [id])
+
+  @@unique([employeeId, period])
+  @@index([employeeId])
+  @@index([period])
+  @@map("monthly_reviews")
+}
+
+model PerformanceEvaluation {
+  id                String   @id @default(cuid())
+  employeeId        String
+  projectId         String?
+  supervisorId      String?
+  period            String   // YYYY-MM
+  score             Float?   // 0-100 (supervisor)
+  selfScore         Float?   // 0-100 (self)
+  selfStrengths     String?
+  selfImprovement   String?
+  selfSubmittedAt   DateTime?
+  strengths         String?
+  improvementAreas  String?
+  correctiveActions String?
+  notes             String?
+  evaluatedAt       DateTime @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  employee   EmployeeProfile @relation("PerfEvalEmployee", fields: [employeeId], references: [id])
+  supervisor EmployeeProfile? @relation("PerfEvalSupervisor", fields: [supervisorId], references: [id])
+
+  @@index([employeeId])
+  @@index([projectId])
+  @@index([supervisorId])
+  @@map("performance_evaluations")
+}
+
+model ChatRoom {
+  id           String         @id @default(cuid())
+  name         String?
+  type         String         @default("DIRECT") // DIRECT | PROJECT | GROUP
+  projectId    String?
+  createdBy    String?
+  createdAt    DateTime       @default(now())
+  members      ChatRoomMember[]
+  messages     ChatMessage[]
+  project      Project?       @relation(fields: [projectId], references: [id])
+
+  @@index([projectId])
+  @@map("chat_rooms")
+}
+
+model ChatRoomMember {
+  id        String   @id @default(cuid())
+  roomId    String
+  userId    String
+  joinedAt  DateTime @default(now())
+  room      ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@map("chat_room_members")
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  roomId    String
+  senderId  String
+  content   String
+  type      String   @default("TEXT")
+  readAt    DateTime?
+  editedAt  DateTime?
+  deletedAt DateTime?
+  pinned    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  room      ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  sender    User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, createdAt])
+  @@map("chat_messages")
+}

@@ -1,0 +1,35 @@
+﻿
+> @amatis/api@1.0.0 build
+> nest build
+
+node.exe : [96msrc/tasks/tasks.service.ts[0m:[93m217[0m:[93m78[0m - [91merror[0m[90m TS2304: [0mCannot find 
+name 'RoleCode'.
+At C:\Program Files\nodejs\npm.ps1:29 char:3
++   & $NODE_EXE $NPM_CLI_JS $args
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([96msrc/tasks/...ame 'RoleCode'.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+[7m217[0m     const isAdminOrCeo = this.dataScope.isAdmin(user) || user.roles.includes(RoleCode.CEO);
+[7m   [0m [91m                                                                             ~~~~~~~~[0m
+[96msrc/tasks/tasks.service.ts[0m:[93m218[0m:[93m43[0m - [91merror[0m[90m TS2304: [0mCannot find name 
+'RoleCode'.
+
+[7m218[0m     const isTechMgr = user.roles.includes(RoleCode.TECH_COMMITTEE_MANAGER);
+[7m   [0m [91m                                          ~~~~~~~~[0m
+[96msrc/tasks/tasks.service.ts[0m:[93m222[0m:[93m29[0m - [91merror[0m[90m TS2304: [0mCannot find name 
+'RoleCode'.
+
+[7m222[0m     if (user.roles.includes(RoleCode.SUPERVISOR)) {
+[7m   [0m [91m                            ~~~~~~~~[0m
+
+Found 3 error(s).
+
+npm error Lifecycle script `build` failed with error:
+npm error code 1
+npm error path E:\rasha\apps\api
+npm error workspace @amatis/api@1.0.0
+npm error location E:\rasha\apps\api
+npm error command failed
+npm error command C:\WINDOWS\system32\cmd.exe /d /s /c nest build
