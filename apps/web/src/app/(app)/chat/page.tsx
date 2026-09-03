@@ -195,24 +195,34 @@ export default function ChatPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadingFile, setUploadingFile] = useState(false);
-  const [fileCaption, setFileCaption] = useState('');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
-  const uploadChatFile = async (file: File) => {
+  const uploadChatFile = async (file: File, caption = '') => {
     if (!activeRoom) return;
     if (file.size > 50 * 1024 * 1024) { alert('حجم فایل حداکثر ۵۰ مگابایت'); return; }
     setUploadingFile(true);
     const fd = new FormData();
     fd.append('file', file);
-    if (fileCaption.trim()) fd.append('caption', fileCaption.trim());
+    if (caption.trim()) fd.append('caption', caption.trim());
     try {
       await api.upload(`/chat/rooms/${activeRoom}/upload`, fd);
-      setFileCaption('');
+      setSelectedFile(null);
       reloadMessages(activeRoom);
     } catch (e) {
       alert((e as Error).message);
     } finally {
       setUploadingFile(false);
     }
+  };
+
+  const sendMessage = async () => {
+    if (!activeRoom) return;
+    if (selectedFile) {
+      await uploadChatFile(selectedFile, text);
+      setText('');
+      return;
+    }
+    send();
   };
 
   const typingPeople = (typingUsers[activeRoom || ''] || []).filter((uid) => uid !== user?.id);
@@ -337,8 +347,15 @@ export default function ChatPage() {
                             <div className="space-y-2">
                               {type.startsWith('image/') && url && <img src={url} alt={media.fileName || 'Uploaded image'} className="max-h-72 rounded-lg object-contain" />}
                               {type.startsWith('video/') && url && <video src={url} controls className="max-h-72 max-w-full rounded-lg" />}
-                              {type.startsWith('audio/') && url && <audio src={url} controls className="w-full" />}
-                              <a href={url} target="_blank" rel="noreferrer" className="underline text-sm break-words">{media.fileName || 'فایل'}</a>
+                              {type.startsWith('audio/') && url && (
+                                <div className="rounded-xl bg-background/20 p-2 shadow-inner">
+                                  <div className="mb-1 flex items-center gap-2 text-xs font-medium"><Mic className="h-3.5 w-3.5" /> پیام صوتی</div>
+                                  <audio src={url} controls preload="metadata" className="h-9 w-64 max-w-full accent-primary" />
+                                </div>
+                              )}
+                              {!type.startsWith('image/') && !type.startsWith('video/') && !type.startsWith('audio/') && (
+                                <a href={url} target="_blank" rel="noreferrer" className="underline text-sm break-words">{media.fileName || 'فایل'}</a>
+                              )}
                               {media.caption && <p className="text-sm break-words">{media.caption}</p>}
                             </div>
                           );
@@ -391,14 +408,14 @@ export default function ChatPage() {
                     <Button variant="ghost" size="icon" disabled={!activeRoom || uploadingFile} onClick={() => fileInputRef.current?.click()} title="آپلود فایل">
                       {uploadingFile ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
                     </Button>
-                    <input type="file" ref={fileInputRef} className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadChatFile(f); e.target.value = ''; }} />
-                    <Input
-                      value={fileCaption}
-                      onChange={(e) => setFileCaption(e.target.value)}
-                      placeholder="Caption (optional)"
-                      className="h-9 max-w-44 text-xs"
-                      disabled={!activeRoom || uploadingFile}
-                    />
+                    <input type="file" ref={fileInputRef} className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) setSelectedFile(f); e.target.value = ''; }} />
+                    {selectedFile && (
+                      <div className="absolute bottom-12 left-12 flex max-w-xs items-center gap-2 rounded-lg border bg-card p-2 text-xs shadow-lg">
+                        {selectedFile.type.startsWith('image/') ? <img src={URL.createObjectURL(selectedFile)} alt="پیش‌نمایش" className="h-12 w-12 rounded object-cover" /> : <Paperclip className="h-4 w-4" />}
+                        <span className="truncate">{selectedFile.name}</span>
+                        <button type="button" onClick={() => setSelectedFile(null)} className="text-destructive">×</button>
+                      </div>
+                    )}
                   </>
                 )}
                 <Input
@@ -411,10 +428,10 @@ export default function ChatPage() {
                       socket?.emit('typing', { roomId: activeRoom, isTyping: false });
                     }, 1500);
                   }}
-                  onKeyDown={(e) => e.key === 'Enter' && send()}
+                  onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
                   placeholder="پیام خود را بنویسید..."
                 />
-                <Button onClick={send} disabled={!text.trim()}><Send className="h-4 w-4" /></Button>
+                <Button onClick={sendMessage} disabled={(!text.trim() && !selectedFile) || uploadingFile}><Send className="h-4 w-4" /></Button>
               </div>
             </CardContent>
           )}

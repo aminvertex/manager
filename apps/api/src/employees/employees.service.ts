@@ -240,7 +240,11 @@ export class EmployeesService {
   }
 
   async update(id: string, dto: UpdateEmployeeDto, user: JwtPayload) {
-    const employee = await this.findOne(id, user);
+    const employee = await this.prisma.employeeProfile.findFirst({
+      where: { id, deletedAt: null },
+      select: { id: true, userId: true, supervisorId: true, firstName: true, lastName: true },
+    });
+    if (!employee) throw new NotFoundException('کارمند یافت نشد');
 
     const isAdmin = this.dataScope.isAdmin(user) || user.roles.includes(RoleCode.CEO);
     const isSelf = user.employeeProfileId === id;

@@ -53,6 +53,9 @@ export default function ProfilePage() {
       await refreshUser();
       qc.invalidateQueries({ queryKey: ['auth'] });
     },
+    onError: (error) => {
+      toast({ title: 'خطا در ذخیره پروفایل', description: (error as Error).message, variant: 'destructive' });
+    },
   });
 
   const uploadAvatar = async (file: File) => {
