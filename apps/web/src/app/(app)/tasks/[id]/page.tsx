@@ -21,6 +21,7 @@ import { TASK_STATUS_LABELS, TASK_STATUS_STYLES, PRIORITY_LABELS, EVALUATION_CRI
 import { toJalaliDateTime, toJalaliDate, toPersianDigits } from '@/lib/date';
 import { JalaliDatePicker } from '@/components/ui/jalali-date-picker';
 import { RoleCode } from '@amatis/types';
+import { StatusChangeModal, StatusChangePayload } from '@/components/tasks/status-change-modal';
 
 interface TaskDetail {
   id: string;
@@ -62,7 +63,8 @@ export default function TaskDetailPage() {
 
   const [showSubmit, setShowSubmit] = useState(searchParams.get('action') === 'submit');
   const [showRevision, setShowRevision] = useState(false);
-  const [showEvaluate, setShowEvaluate] = useState(false);
+  const [showEvaluate, setShowEvaluate] = useState(searchParams.get('action') === 'evaluate');
+  const [showStatusChange, setShowStatusChange] = useState(false);
   const [progress, setProgress] = useState(0);
   const [revisionReason, setRevisionReason] = useState('');
   const [revisionComment, setRevisionComment] = useState('');
@@ -125,6 +127,40 @@ export default function TaskDetailPage() {
     onError: (e) => toast({ title: 'خطا', description: (e as ApiError).message, variant: 'destructive' }),
   });
 
+  const statusTransitions = (status: string) => {
+    const isSupervisor = !!user && !!t?.project && (t.project.managerId === user.employeeProfile?.id ||
+      (user.roles.includes(RoleCode.SUPERVISOR) && t.employee.supervisorId === user.employeeProfile?.id));
+    const fullAccess = !!user && [RoleCode.SUPER_ADMIN, RoleCode.CEO, RoleCode.TECH_COMMITTEE_MANAGER].some((r) => user.roles.includes(r));
+    const flow: Record<string, string[]> = {
+      ASSIGNED: ['NOT_STARTED'], NOT_STARTED: ['IN_PROGRESS', 'CANCELLED'],
+      IN_PROGRESS: ['SUBMITTED', 'CANCELLED'], SUBMITTED: ['UNDER_REVIEW', 'CANCELLED'],
+      UNDER_REVIEW: ['APPROVED', 'NEED_REVISION'], NEED_REVISION: ['IN_PROGRESS', 'CANCELLED'],
+      RESUBMITTED: ['UNDER_REVIEW', 'CANCELLED'],
+    };
+    if (fullAccess) return flow[status] || [];
+    if (isSupervisor && status === 'SUBMITTED') return ['NEED_REVISION'];
+    if (isAssignee && ['ASSIGNED', 'NOT_STARTED', 'NEED_REVISION'].includes(status)) return ['IN_PROGRESS'];
+    if (isAssignee && status === 'IN_PROGRESS') return ['SUBMITTED'];
+    return [];
+  };
+
+  const submitStatusChange = async ({ status, progress: nextProgress, comment: statusComment, file: statusFile }: StatusChangePayload) => {
+    if (!t) return;
+    await api.patch(`/tasks/${id}/status`, { status, comment: statusComment || undefined });
+    if (nextProgress !== t.progress) await api.patch(`/tasks/${id}/progress`, { progress: nextProgress });
+    if (statusFile) {
+      if (statusFile.size > 20 * 1024 * 1024) throw new Error('حجم فایل حداکثر ۲۰ مگابایت است');
+      const fd = new FormData(); fd.append('file', statusFile);
+      const token = localStorage.getItem('accessToken');
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4041/api/v1'}/tasks/${id}/attachment`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd });
+      if (!response.ok) throw new Error('خطا در آپلود فایل');
+    }
+    setShowStatusChange(false);
+    qc.invalidateQueries({ queryKey: ['task', id] });
+    qc.invalidateQueries({ queryKey: ['my-tasks'] });
+    toast({ title: 'تغییر وضعیت ثبت شد' });
+  };
+
   if (isLoading) return <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
   if (error || !t) return <Card className="p-8 text-center text-destructive">تسک یافت نشد</Card>;
 
@@ -152,12 +188,21 @@ export default function TaskDetailPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {canStart && <Button onClick={() => setStatus.mutate('IN_PROGRESS')}><Play className="h-4 w-4 ml-2" />شروع تسک</Button>}
-          {canSubmit && <Button onClick={() => setStatus.mutate('SUBMITTED')}><Send className="h-4 w-4 ml-2" />تحویل تسک</Button>}
+          {(canStart || canSubmit || canReview) && <Button onClick={() => setShowStatusChange(true)}><Play className="h-4 w-4 ml-2" />تغییر وضعیت</Button>}
           {canReview && <Button variant="outline" onClick={() => setShowRevision(true)}><RefreshCcw className="h-4 w-4 ml-2" />درخواست اصلاح</Button>}
           {canReview && <Button onClick={() => setShowEvaluate(true)}><CheckCircle2 className="h-4 w-4 ml-2" />ارزیابی</Button>}
           {t.status !== 'APPROVED' && t.status !== 'CANCELLED' && <Button variant="ghost" onClick={() => setShowSubmit(true)}><FileUp className="h-4 w-4 ml-2" />آپلود خروجی</Button>}
         </div>
+
+        <StatusChangeModal
+          open={showStatusChange}
+          onOpenChange={setShowStatusChange}
+          currentStatus={t.status}
+          currentProgress={t.progress}
+          transitions={statusTransitions(t.status)}
+          onSubmit={submitStatusChange}
+          isPending={setStatus.isPending || updateProgress.isPending || uploadFile.isPending}
+        />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">

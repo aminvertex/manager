@@ -17,11 +17,11 @@ export class EvaluationsService {
   ) {}
 
   async create(dto: CreateEvaluationDto, user: JwtPayload) {
-    if (!user.roles.includes('SUPERVISOR') && !this.dataScope.isAdmin(user) && !user.roles.includes('CEO')) {
-      throw new ForbiddenException('فقط سرپرست می‌تواند ارزیابی ثبت کند');
-    }
     const task = await this.prisma.taskAssignment.findFirst({ where: { id: dto.taskAssignmentId, deletedAt: null } });
     if (!task) throw new NotFoundException('تسک یافت نشد');
+    if (!user.employeeProfileId) {
+      throw new ForbiddenException('کاربر ارزیاب باید پروفایل کارمندی داشته باشد');
+    }
 
     const isProjectSupervisor = task.projectId
       ? !!(await this.prisma.project.findFirst({
@@ -32,8 +32,9 @@ export class EvaluationsService {
       !!(await this.prisma.employeeProfile.findFirst({
         where: { id: task.employeeId, supervisorId: user.employeeProfileId },
       }));
-    // Evaluation is only possible for a submitted task by its project supervisor.
-    if (task.status !== 'SUBMITTED' || (!isProjectSupervisor && !isDirectSupervisor && !this.dataScope.isAdmin(user))) {
+    // Evaluation is only possible for a submitted/resubmitted task by its
+    // direct or project supervisor (or an administrator).
+    if (!['SUBMITTED', 'RESUBMITTED'].includes(task.status) || (!isProjectSupervisor && !isDirectSupervisor && !this.dataScope.isAdmin(user))) {
       throw new ForbiddenException('فقط سرپرست پروژه می‌تواند تسک ارسال‌شده را ارزیابی کند');
     }
     if (user.roles.includes('SUPERVISOR') && !isProjectSupervisor) {
@@ -54,7 +55,7 @@ export class EvaluationsService {
     const score100 = Math.round((average / 5) * 100);
 
     const result = dto.result || 'APPROVED';
-    if (!['APPROVED', 'APPROVED_WITH_COMMENT', 'NEED_REVISION'].includes(result)) {
+    if (!EVALUATION_RESULTS.includes(result as typeof EVALUATION_RESULTS[number])) {
       throw new BadRequestException('نتیجه ارزیابی فقط می‌تواند تأیید یا نیازمند اصلاح باشد');
     }
     const evaluation = await this.prisma.supervisorEvaluation.upsert({

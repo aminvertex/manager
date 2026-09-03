@@ -88,7 +88,10 @@ export class TasksService {
 
 // Supervisors assign to their team or to members of projects they manage.
 if (user.roles.includes('SUPERVISOR') && !this.dataScope.isAdmin(user) && !isPersonal) {
-      const isInTeam = await this.prisma.employeeProfile.findFirst({ where: { id: dto.employeeId, supervisorId: user.employeeProfileId } });
+  if (dto.employeeId === user.employeeProfileId) {
+    throw new ForbiddenException('سرپرست نمی‌تواند تسک را به خودش اختصاص دهد');
+  }
+  const isInTeam = await this.prisma.employeeProfile.findFirst({ where: { id: dto.employeeId, supervisorId: user.employeeProfileId } });
       if (isInTeam) { /* ok */ }
       else if (dto.projectId) {
         const isProjMgr = await this.prisma.project.findFirst({ where: { id: dto.projectId, managerId: user.employeeProfileId } });
@@ -278,7 +281,26 @@ if (user.roles.includes('SUPERVISOR') && !this.dataScope.isAdmin(user) && !isPer
       this.dataScope.isAdmin(user) ||
       user.roles.includes(RoleCode.CEO) ||
       user.roles.includes(RoleCode.TECH_COMMITTEE_MANAGER);
+    if (!hasFullStatusAccess && !(STATUS_TRANSITIONS[from] || []).includes(to)) {
+      throw new BadRequestException(`تغییر وضعیت از ${from} به ${to} مجاز نیست`);
+    }
 
+    // APPROVED is a derived workflow state: it can only be reached after a
+    // supervisor/project-supervisor evaluation, never by a direct status edit.
+    if (to === 'APPROVED' && !hasFullStatusAccess) {
+      const evaluation = await this.prisma.supervisorEvaluation.findUnique({
+        where: { taskAssignmentId: task.id },
+        select: { result: true, supervisorId: true },
+      });
+      const isSupervisor = isProjectSupervisor || user.roles.includes(RoleCode.SUPERVISOR);
+      if (
+        !evaluation ||
+        !['APPROVED', 'APPROVED_WITH_COMMENT'].includes(evaluation.result) ||
+        (isSupervisor && evaluation.supervisorId !== user.employeeProfileId)
+      ) {
+        throw new ForbiddenException('تأیید تسک فقط پس از ثبت ارزیابی سرپرست یا سرپرست پروژه ممکن است');
+      }
+    }
     if (hasFullStatusAccess) {
       return this.finalizeStatusChange(task, dto, user, from, to);
     }
@@ -472,6 +494,9 @@ if (user.roles.includes('SUPERVISOR') && !this.dataScope.isAdmin(user) && !isPer
     if (!this.dataScope.isAdmin(user) && !user.roles.includes('SUPERVISOR') && !user.roles.includes('CEO')) {
       throw new ForbiddenException('فقط سرپرست یا مدیر می‌تواند تسک را ویرایش کند');
     }
+    if (dto.status !== undefined) {
+      throw new BadRequestException('تغییر وضعیت فقط از طریق درخواست تغییر وضعیت مجاز است');
+    }
 
     // Phase 31: Supervisor can edit/delete only tasks they created (assignedById == self),
     // for manager-created tasks they must request revision instead.
@@ -492,14 +517,6 @@ if (user.roles.includes('SUPERVISOR') && !this.dataScope.isAdmin(user) && !isPer
     if (dto.deadline !== undefined) data.deadline = dto.deadline ? new Date(dto.deadline) : null;
     if (dto.priority) data.priority = dto.priority;
     if (dto.notes !== undefined) data.notes = dto.notes;
-    if (dto.status) {
-      const delay = this.calculateDelay(task.deadline, task.completionTime, dto.status);
-      data.status = dto.status;
-      data.isDelayed = delay.isDelayed;
-      data.delayDays = delay.delayDays;
-      data.isLateDelivery = delay.isLateDelivery;
-    }
-
     const updated = await this.prisma.taskAssignment.update({ where: { id }, data });
     await this.prisma.taskStatusHistory.create({ data: { taskAssignmentId: id, fromStatus: task.status, toStatus: dto.status || task.status, changedById: user.employeeProfileId } });
     await this.audit.logFromRequest(user, 'TASK_UPDATED', 'TaskAssignment', id, undefined, dto as any);
