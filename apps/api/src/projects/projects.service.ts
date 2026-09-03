@@ -189,6 +189,7 @@ export class ProjectsService {
         update: { role: 'PROJECT_SUPERVISOR' },
       });
     }
+    await this.ensureProjectChat(project.id, project.name, user.sub);
 
     await this.auditService.logFromRequest(
       user,

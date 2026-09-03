@@ -169,13 +169,13 @@ export class ChatService {
     });
   }
 
-  async createFileMessage(roomId: string, senderId: string, fileInfo: { content: string; fileName: string; fileType: string; fileSize: number }) {
+  async createFileMessage(roomId: string, senderId: string, fileInfo: { content: string; fileName: string; fileType: string; fileSize: number; caption?: string }) {
     return this.prisma.chatMessage.create({
       data: {
         roomId,
         senderId,
         type: 'FILE',
-        content: JSON.stringify({ url: fileInfo.content, fileName: fileInfo.fileName, fileType: fileInfo.fileType, fileSize: fileInfo.fileSize }),
+        content: JSON.stringify({ url: fileInfo.content, fileName: fileInfo.fileName, fileType: fileInfo.fileType, fileSize: fileInfo.fileSize, caption: fileInfo.caption || undefined }),
       },
       include: {
         sender: {

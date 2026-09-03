@@ -32,6 +32,14 @@ export class EvaluationsService {
       !!(await this.prisma.employeeProfile.findFirst({
         where: { id: task.employeeId, supervisorId: user.employeeProfileId },
       }));
+    if (
+      task.employeeId === user.employeeProfileId &&
+      !this.dataScope.isAdmin(user) &&
+      !user.roles.includes('CEO') &&
+      !user.roles.includes('TECH_COMMITTEE_MANAGER')
+    ) {
+      throw new ForbiddenException('نمی‌توانید تسک خودتان را ارزیابی کنید');
+    }
     // Evaluation is only possible for a submitted/resubmitted task by its
     // direct or project supervisor (or an administrator).
     if (!['SUBMITTED', 'RESUBMITTED'].includes(task.status) || (!isProjectSupervisor && !isDirectSupervisor && !this.dataScope.isAdmin(user))) {

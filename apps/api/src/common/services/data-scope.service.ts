@@ -55,6 +55,7 @@ export class DataScopeService {
 
     if (roles.some((r) => MANAGER_ROLES.includes(r))) {
       return (
+        targetEmployeeId === user.employeeProfileId ||
         targetSupervisorId === user.employeeProfileId ||
         targetEmployeeId === user.employeeProfileId
       );
@@ -64,7 +65,7 @@ export class DataScopeService {
       return targetEmployeeId === user.employeeProfileId;
     }
 
-    return false;
+    return targetEmployeeId === user.employeeProfileId;
   }
 
   isAdmin(user: JwtPayload): boolean {
