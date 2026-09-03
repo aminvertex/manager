@@ -60,11 +60,7 @@ export default function ProfilePage() {
     try {
       const fd = new FormData();
       fd.append('avatar', file);
-      const token = localStorage.getItem('accessToken');
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1'}/employees/${profile?.id}/avatar`, {
-        method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
-      });
-      if (!res.ok) throw new Error('خطا در آپلود عکس');
+      await api.upload(`/employees/${profile?.id}/avatar`, fd);
       await refreshUser();
       qc.invalidateQueries({ queryKey: ['auth'] });
       toast({ title: 'عکس پروفایل به‌روزرسانی شد' });

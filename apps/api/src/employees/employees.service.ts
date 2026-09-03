@@ -75,7 +75,7 @@ export class EmployeesService {
     }
 
     if (query.supervisorId) where.supervisorId = query.supervisorId;
-    if (query.projectId) where.primaryProjectId = query.projectId;
+    if (query.projectId) where.projectMembers = { some: { projectId: query.projectId } };
     if (query.collaborationStatus)
       where.collaborationStatus = query.collaborationStatus;
 
@@ -250,7 +250,7 @@ export class EmployeesService {
     }
 
     if (!isAdmin) {
-      const allowedFields = ['email', 'age'];
+      const allowedFields = ['firstName', 'lastName', 'email', 'age', 'gender', 'maritalStatus'];
       const dtoKeys = Object.keys(dto);
       const hasForbidden = dtoKeys.some((k) => !allowedFields.includes(k));
       if (hasForbidden) {

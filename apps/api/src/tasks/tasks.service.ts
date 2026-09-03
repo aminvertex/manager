@@ -187,7 +187,6 @@ if (user.roles.includes('SUPERVISOR') && !this.dataScope.isAdmin(user) && !isPer
       } else {
         const subordinates = await this.prisma.employeeProfile.findMany({ where: { supervisorId: user.employeeProfileId }, select: { id: true } });
         const ids = subordinates.map(s => s.id);
-        ids.push(user.employeeProfileId!);
         where.employeeId = { in: ids };
       }
     } else {
@@ -389,6 +388,9 @@ if (user.roles.includes('SUPERVISOR') && !this.dataScope.isAdmin(user) && !isPer
       // supervisor can also update? but restrict to assignee
       throw new ForbiddenException('فقط کارمند مسئول می‌تواند پیشرفت را تغییر دهد');
     }
+    if (['NOT_STARTED', 'ASSIGNED'].includes(task.status)) {
+      throw new BadRequestException('ابتدا تسک را شروع کنید');
+    }
     if (['APPROVED','REJECTED','CANCELLED'].includes(task.status)) throw new BadRequestException('تسک تمام شده');
     const updated = await this.prisma.taskAssignment.update({ where: { id }, data: { progress } });
     return updated;
@@ -478,7 +480,6 @@ if (user.roles.includes('SUPERVISOR') && !this.dataScope.isAdmin(user) && !isPer
     if (user.roles.includes('SUPERVISOR')) {
       const subs = await this.prisma.employeeProfile.findMany({ where: { supervisorId: employeeId }, select: { id: true } });
       const ids = subs.map(s => s.id);
-      ids.push(employeeId);
       empFilter = { employeeId: { in: ids } };
     }
 

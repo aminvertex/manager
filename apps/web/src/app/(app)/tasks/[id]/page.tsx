@@ -74,6 +74,9 @@ export default function TaskDetailPage() {
   const [scores, setScores] = useState<Record<string, number>>({});
   const [evalResult, setEvalResult] = useState('APPROVED');
   const [evalComment, setEvalComment] = useState('');
+  const [pendingSubmit, setPendingSubmit] = useState<StatusChangePayload | null>(null);
+  const [showNoFileConfirm, setShowNoFileConfirm] = useState(false);
+  const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
 
   const { data: task, isLoading, error } = useQuery({
     queryKey: ['task', id],
@@ -141,6 +144,22 @@ export default function TaskDetailPage() {
 
   const submitStatusChange = async ({ status, progress: nextProgress, comment: statusComment, file: statusFile }: StatusChangePayload) => {
     if (!t) return;
+    if (status === 'SUBMITTED') {
+      if (nextProgress < 100) {
+        toast({ title: 'پیشرفت ناقص است', description: 'برای ارسال تسک، ابتدا پیشرفت را روی ۱۰۰٪ ثبت کنید.', variant: 'destructive' });
+        return;
+      }
+      if (t.attachments.length === 0 && !statusFile) {
+        setPendingSubmit({ status, progress: nextProgress, comment: statusComment, file: statusFile });
+        setShowNoFileConfirm(true);
+        return;
+      }
+    }
+    await executeStatusChange({ status, progress: nextProgress, comment: statusComment, file: statusFile });
+  };
+
+  const executeStatusChange = async ({ status, progress: nextProgress, comment: statusComment, file: statusFile }: StatusChangePayload) => {
+    if (!t) return;
     await api.patch(`/tasks/${id}/status`, { status, comment: statusComment || undefined });
     if (nextProgress !== t.progress) await api.patch(`/tasks/${id}/progress`, { progress: nextProgress });
     if (statusFile) {
@@ -205,7 +224,7 @@ export default function TaskDetailPage() {
       {taskLocked && <Card className="border-warning/30 bg-warning/10"><CardContent className="p-4 text-sm text-warning-foreground">تا زمانی که تسک شروع نشده است، آپلود فایل، ثبت پیشرفت و ارسال نظر غیرفعال هستند.</CardContent></Card>}
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-4">
-          <Tabs defaultValue="info">
+          <Tabs defaultValue="info" className={taskLocked ? 'pointer-events-none select-none opacity-50' : ''}>
             <TabsList>
               <TabsTrigger value="info">اطلاعات تسک</TabsTrigger>
               <TabsTrigger value="output">خروجی و فایل‌ها</TabsTrigger>
@@ -456,6 +475,24 @@ export default function TaskDetailPage() {
             <Button className="w-full" disabled={Object.keys(scores).length < 10 || evaluate.isPending} onClick={() => evaluate.mutate()}>
               ثبت ارزیابی
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={showNoFileConfirm} onOpenChange={setShowNoFileConfirm}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>فایل خروجی ثبت نشده است</DialogTitle><DialogDescription>آیا برای این تسک نیازی به آپلود فایل نیست؟</DialogDescription></DialogHeader>
+          <div className="flex gap-2">
+            <Button variant="outline" className="flex-1" onClick={() => { setShowNoFileConfirm(false); setShowSubmitConfirm(true); }}>خیر، بررسی دوباره</Button>
+            <Button className="flex-1" onClick={() => { setShowNoFileConfirm(false); setShowSubmitConfirm(true); }}>بله، نیاز نیست</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={showSubmitConfirm} onOpenChange={setShowSubmitConfirm}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>تأیید ارسال برای بازرسی</DialogTitle><DialogDescription>آیا مطمئن هستید تسک را برای بررسی سرپرست ارسال کنید؟</DialogDescription></DialogHeader>
+          <div className="flex gap-2">
+            <Button variant="outline" className="flex-1" onClick={() => setShowSubmitConfirm(false)}>انصراف</Button>
+            <Button className="flex-1" disabled={!pendingSubmit || setStatus.isPending} onClick={async () => { if (!pendingSubmit) return; setShowSubmitConfirm(false); await executeStatusChange(pendingSubmit); setPendingSubmit(null); }}>بله، ارسال کن</Button>
           </div>
         </DialogContent>
       </Dialog>
