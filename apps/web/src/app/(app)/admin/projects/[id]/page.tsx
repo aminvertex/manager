@@ -20,6 +20,7 @@ import { toJalaliDate, toJalaliDateTime, toPersianDigits } from '@/lib/date';
 import { JalaliDatePicker } from '@/components/ui/jalali-date-picker';
 import { downloadFile, resolveAvatarUrl } from '@/lib/utils';
 import { RoleCode } from '@amatis/types';
+import { StatusChangeModal, StatusChangePayload } from '@/components/tasks/status-change-modal';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { TASK_STATUS_LABELS } from '@/lib/labels';
 import { toast } from '@/hooks/use-toast';
@@ -39,12 +40,13 @@ export default function ProjectDetailPage() {
   const qc = useQueryClient();
   const { user, hasRole } = useAuth();
   const isAdmin = hasRole(RoleCode.SUPER_ADMIN) || hasRole(RoleCode.CEO) || hasRole(RoleCode.TECH_COMMITTEE_MANAGER);
-  const isEmployeeRole = hasRole(RoleCode.EMPLOYEE) || hasRole(RoleCode.EXPERT_L1) || hasRole(RoleCode.EXPERT_L2) || hasRole(RoleCode.EXPERT_L3) || hasRole(RoleCode.SALES_CONSULTANT) || hasRole(RoleCode.TECH_COMMITTEE_MEMBER);
+  const isEmployeeRole = !isAdmin && !hasRole(RoleCode.SUPERVISOR) && (hasRole(RoleCode.EMPLOYEE) || hasRole(RoleCode.EXPERT_L1) || hasRole(RoleCode.EXPERT_L2) || hasRole(RoleCode.EXPERT_L3) || hasRole(RoleCode.SALES_CONSULTANT) || hasRole(RoleCode.TECH_COMMITTEE_MEMBER));
 
   const [showMember, setShowMember] = useState(false);
   const [memberId, setMemberId] = useState('');
   const [selectedTask, setSelectedTask] = useState<any>(null);
   const [kanbanEmployeeFilter, setKanbanEmployeeFilter] = useState('');
+  const [showStatusChange, setShowStatusChange] = useState(false);
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [taskForm, setTaskForm] = useState({ taskTemplateId: '', employeeId: '', projectId: id, deadline: '', priority: 'MEDIUM' });
   const [chatMsg, setChatMsg] = useState('');
@@ -97,7 +99,9 @@ export default function ProjectDetailPage() {
   const visibleKanbanTasks = isEmployeeRole
     ? kanbanTasks.filter((t) => t.employee?.id === user?.employeeProfile?.id)
     : kanbanTasks;
-  const taskById = (statusKey: string) => visibleKanbanTasks.filter((t) => t.status === statusKey);
+  const taskById = (statusKey: string) => visibleKanbanTasks.filter((t) =>
+    statusKey === 'NOT_STARTED' ? ['NOT_STARTED', 'ASSIGNED'].includes(t.status) : t.status === statusKey,
+  );
   const now = new Date();
   const isDelayed = (t: any) => t.isDelayed || (t.deadline && !['APPROVED','CANCELLED'].includes(t.status) && new Date(t.deadline) < now);
 
@@ -189,13 +193,40 @@ export default function ProjectDetailPage() {
   const canMoveTask = (task: any, target: string) => {
     const isAssignee = task.employee?.id === user?.employeeProfile?.id;
     const isProjectSupervisor = report?.data?.project?.managerId === user?.employeeProfile?.id;
+    if (isAdmin) return target !== task.status;
     if (task.status === 'NOT_STARTED' && target === 'IN_PROGRESS') return isAssignee;
     if (task.status === 'IN_PROGRESS' && target === 'SUBMITTED') return isAssignee;
     if (task.status === 'NEED_REVISION' && ['NOT_STARTED', 'IN_PROGRESS'].includes(target)) return isAssignee;
     if (task.status === 'SUBMITTED' && ['APPROVED', 'NEED_REVISION'].includes(target)) return isProjectSupervisor;
     return false;
   };
-  const KANBAN_FLOW: Record<string, string[]> = { NOT_STARTED: ['IN_PROGRESS'], IN_PROGRESS: ['SUBMITTED'], SUBMITTED: ['APPROVED', 'NEED_REVISION'], NEED_REVISION: ['NOT_STARTED', 'IN_PROGRESS'], APPROVED: [] };
+  const KANBAN_FLOW: Record<string, string[]> = {
+    ASSIGNED: ['NOT_STARTED', 'IN_PROGRESS', 'SUBMITTED', 'UNDER_REVIEW', 'NEED_REVISION', 'APPROVED'],
+    NOT_STARTED: ['IN_PROGRESS', 'SUBMITTED', 'UNDER_REVIEW', 'NEED_REVISION', 'APPROVED'],
+    IN_PROGRESS: ['NOT_STARTED', 'SUBMITTED', 'UNDER_REVIEW', 'NEED_REVISION', 'APPROVED'],
+    SUBMITTED: ['NOT_STARTED', 'IN_PROGRESS', 'UNDER_REVIEW', 'NEED_REVISION', 'APPROVED'],
+    UNDER_REVIEW: ['NOT_STARTED', 'IN_PROGRESS', 'SUBMITTED', 'NEED_REVISION', 'APPROVED'],
+    NEED_REVISION: ['NOT_STARTED', 'IN_PROGRESS', 'SUBMITTED', 'UNDER_REVIEW', 'APPROVED'],
+    RESUBMITTED: ['NOT_STARTED', 'IN_PROGRESS', 'SUBMITTED', 'UNDER_REVIEW', 'NEED_REVISION', 'APPROVED'],
+    APPROVED: ['NOT_STARTED', 'IN_PROGRESS', 'SUBMITTED', 'UNDER_REVIEW', 'NEED_REVISION'],
+  };
+
+  const openStatusChange = (task: any) => { setSelectedTask(task); setShowStatusChange(true); };
+  const submitStatusChange = async ({ status, progress, comment, file }: StatusChangePayload) => {
+    if (!selectedTask) return;
+    await api.patch(`/tasks/${selectedTask.id}/status`, { status, comment: comment || undefined });
+    if (progress !== (selectedTask.progress || 0)) await api.patch(`/tasks/${selectedTask.id}/progress`, { progress });
+    if (file) {
+      if (file.size > 20 * 1024 * 1024) throw new Error('حجم فایل حداکثر ۲۰ مگابایت است');
+      const fd = new FormData(); fd.append('file', file);
+      const token = localStorage.getItem('accessToken');
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4041/api/v1'}/tasks/${selectedTask.id}/attachment`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd });
+      if (!response.ok) throw new Error('خطا در آپلود فایل');
+    }
+    setShowStatusChange(false); setSelectedTask(null);
+    qc.invalidateQueries({ queryKey: ['project-tasks', id] }); qc.invalidateQueries({ queryKey: ['project-report', id] });
+    toast({ title: 'تغییر وضعیت ثبت شد' });
+  };
 
   if (isLoading) return (
     <div className="space-y-6 p-6"><Skeleton className="h-10 w-64" /><div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-4">{Array.from({length:6}).map((_,i) => <Skeleton key={i} className="h-24 rounded-xl" />)}</div><div className="grid gap-4 lg:grid-cols-2">{Array.from({length:2}).map((_,i) => <Skeleton key={i} className="h-72 rounded-xl" />)}</div></div>
@@ -331,11 +362,11 @@ export default function ProjectDetailPage() {
         <CardContent>
           {tasksLoading ? <div className="grid grid-cols-5 gap-3">{Array.from({length:5}).map((_,i) => <Skeleton key={i} className="h-48 rounded-xl" />)}</div> : kanbanTasks.length === 0 ? <p className="text-center text-muted-foreground py-8">تسکی ثبت نشده</p> : (
             <>
-              <div className="flex items-center gap-3 mb-4"><Label className="shrink-0">فیلتر:</Label>
+              {!isEmployeeRole && <div className="flex items-center gap-3 mb-4"><Label className="shrink-0">فیلتر:</Label>
                 <Select value={kanbanEmployeeFilter} onValueChange={setKanbanEmployeeFilter} className="max-w-[220px]">
                   <option value="">همه</option>{Array.from(new Set(kanbanTasks.map(t => t.employee?.id).filter(Boolean))).map(eid => { const emp = kanbanTasks.find(t => t.employee?.id === eid)?.employee; return <option key={eid} value={eid}>{emp?.firstName} {emp?.lastName}</option>; })}
                 </Select>
-              </div>
+              </div>}
               <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-3">
                 {kanbanColumns.map(col => {
                   const colTasks = taskById(col.key).filter(t => !kanbanEmployeeFilter || t.employee?.id === kanbanEmployeeFilter);
@@ -349,7 +380,7 @@ export default function ProjectDetailPage() {
                           {t.deadline && <p className="text-[10px] text-muted-foreground mt-0.5">مهلت: {toJalaliDate(t.deadline)}</p>}
                         </button>
                         {isDelayed(t) && <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-destructive/15 text-destructive mt-1">تأخیر</span>}
-                        {KANBAN_FLOW[t.status]?.filter((target) => canMoveTask(t, target)).length > 0 && <div className="flex gap-1 mt-2">{KANBAN_FLOW[t.status].filter((target) => canMoveTask(t, target)).map(target => <button key={target} type="button" onClick={() => moveTask.mutate({taskId:t.id,status:target})} className="flex-1 rounded bg-muted text-[10px] py-1 hover:bg-primary/10 hover:text-primary">{TASK_STATUS_LABELS[target]||target}</button>)}</div>}
+                        {KANBAN_FLOW[t.status]?.filter((target) => canMoveTask(t, target)).length > 0 && <div className="flex gap-1 mt-2">{KANBAN_FLOW[t.status].filter((target) => canMoveTask(t, target)).map(target => <button key={target} type="button" onClick={() => target === 'APPROVED' && !isAdmin ? router.push(`/tasks/${t.id}?action=evaluate`) : openStatusChange(t)} className="flex-1 rounded bg-muted text-[10px] py-1 hover:bg-primary/10 hover:text-primary">{target === 'APPROVED' && !isAdmin ? 'ارزیابی و تایید' : TASK_STATUS_LABELS[target]||target}</button>)}</div>}
                       </div>
                     ))}{colTasks.length === 0 && <p className="text-center text-[11px] text-muted-foreground py-3">—</p>}</div>
                   </div>;
@@ -415,7 +446,7 @@ export default function ProjectDetailPage() {
             <div><Label>کارمند *</Label>
               <Select value={taskForm.employeeId} onValueChange={(v) => setTaskForm({ ...taskForm, employeeId: v })}>
                 <option value="">انتخاب کارمند...</option>
-                {(d.members || []).map((e: any) => <option key={e.id} value={e.id}>{e.firstName} {e.lastName}</option>)}
+                {(d.members || []).filter((e: any) => !(hasRole(RoleCode.SUPERVISOR) && !isAdmin && e.id === user?.employeeProfile?.id)).map((e: any) => <option key={e.id} value={e.id}>{e.firstName} {e.lastName}</option>)}
               </Select>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -433,7 +464,7 @@ export default function ProjectDetailPage() {
           </div>
         </DialogContent>
       </Dialog>
-      <Dialog open={!!selectedTask} onOpenChange={(o) => !o && setSelectedTask(null)}>
+      <Dialog open={!!selectedTask && !showStatusChange} onOpenChange={(o) => !o && setSelectedTask(null)}>
         <DialogContent><DialogHeader><DialogTitle className="text-lg">{selectedTask?.taskTemplate?.name}</DialogTitle></DialogHeader>
           {selectedTask && <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3 text-sm">
@@ -447,6 +478,15 @@ export default function ProjectDetailPage() {
           </div>}
         </DialogContent>
       </Dialog>
+      {selectedTask && <StatusChangeModal
+        open={showStatusChange}
+        onOpenChange={(open) => { setShowStatusChange(open); if (!open) setSelectedTask(null); }}
+        currentStatus={selectedTask.status}
+        currentProgress={selectedTask.progress || 0}
+        transitions={KANBAN_FLOW[selectedTask.status]?.filter((target) => canMoveTask(selectedTask, target)) || []}
+        onSubmit={submitStatusChange}
+        isPending={moveTask.isPending}
+      />}
       <Dialog open={showMember} onOpenChange={setShowMember}>
         <DialogContent><DialogHeader><DialogTitle>افزودن عضو</DialogTitle></DialogHeader>
           <div className="space-y-4"><div><Label>کارمند</Label><Select value={memberId} onValueChange={setMemberId}><option value="">انتخاب...</option>{(employees?.data||[]).map((e:any) => <option key={e.id} value={e.id}>{e.firstName} {e.lastName}</option>)}</Select></div>

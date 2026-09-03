@@ -81,7 +81,7 @@ export class ProjectsService {
     }
     if (query.status) where.status = query.status;
 
-    if (user && !this.dataScope.isAdmin(user) && !user.roles.includes(RoleCode.CEO)) {
+    if (user && !this.dataScope.isAdmin(user) && !user.roles.includes(RoleCode.CEO) && !user.roles.includes(RoleCode.TECH_COMMITTEE_MANAGER)) {
       if (user.roles.includes(RoleCode.SUPERVISOR)) {
         const memberProjectIds = await this.prisma.projectMember.findMany({
           where: { employeeId: user.employeeProfileId },
@@ -398,7 +398,11 @@ export class ProjectsService {
   }
 
   private async canAccessProject(id: string, user: JwtPayload) {
-    if (this.dataScope.isAdmin(user) || user.roles.includes(RoleCode.CEO)) return;
+    if (
+      this.dataScope.isAdmin(user) ||
+      user.roles.includes(RoleCode.CEO) ||
+      user.roles.includes(RoleCode.TECH_COMMITTEE_MANAGER)
+    ) return;
     const isMember = await this.prisma.projectMember.findFirst({
       where: { projectId: id, employeeId: user.employeeProfileId },
     });
