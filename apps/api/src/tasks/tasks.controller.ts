@@ -58,7 +58,7 @@ export class TasksController {
   }
 
   @Patch(':id')
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SUPERVISOR, RoleCode.CEO)
+  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SUPERVISOR, RoleCode.CEO, RoleCode.TECH_COMMITTEE_MANAGER)
   update(@Param('id') id: string, @Body() dto: UpdateTaskDto, @GetUser() user: JwtPayload) {
     return this.service.update(id, dto, user);
   }
@@ -70,7 +70,7 @@ export class TasksController {
   }
 
   @Post(':id/revision')
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SUPERVISOR, RoleCode.CEO)
+  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SUPERVISOR, RoleCode.CEO, RoleCode.TECH_COMMITTEE_MANAGER)
   requestRevision(@Param('id') id: string, @Body() dto: RequestRevisionDto, @GetUser() user: JwtPayload) {
     return this.service.requestRevision(id, dto, user);
   }

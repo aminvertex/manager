@@ -52,7 +52,7 @@ export class ProjectsService {
   }
 
   private async canManageProject(projectId: string, user: JwtPayload) {
-    if (this.dataScope.isAdmin(user) || user.roles.includes(RoleCode.CEO)) return;
+    if (this.dataScope.isAdmin(user) || user.roles.includes(RoleCode.CEO) || user.roles.includes(RoleCode.TECH_COMMITTEE_MANAGER)) return;
     if (user.roles.includes(RoleCode.SUPERVISOR)) {
       const project = await this.prisma.project.findUnique({ where: { id: projectId } });
       if (!project) throw new NotFoundException('پروژه یافت نشد');
@@ -130,6 +130,17 @@ export class ProjectsService {
   }
 
   async findOne(id: string) {
+    const manager = await this.prisma.project.findUnique({
+      where: { id },
+      select: { managerId: true },
+    });
+    if (manager?.managerId) {
+      await this.prisma.projectMember.upsert({
+        where: { projectId_employeeId: { projectId: id, employeeId: manager.managerId } },
+        create: { projectId: id, employeeId: manager.managerId, role: 'PROJECT_SUPERVISOR' },
+        update: { role: 'PROJECT_SUPERVISOR' },
+      });
+    }
     const project = await this.prisma.project.findFirst({
       where: { id, deletedAt: null },
       include: {
@@ -171,6 +182,14 @@ export class ProjectsService {
       },
     });
 
+    if (dto.managerId) {
+      await this.prisma.projectMember.upsert({
+        where: { projectId_employeeId: { projectId: project.id, employeeId: dto.managerId } },
+        create: { projectId: project.id, employeeId: dto.managerId, role: 'PROJECT_SUPERVISOR' },
+        update: { role: 'PROJECT_SUPERVISOR' },
+      });
+    }
+
     await this.auditService.logFromRequest(
       user,
       'PROJECT_CREATED',
@@ -191,6 +210,14 @@ export class ProjectsService {
       where: { id },
       data: dto,
     });
+
+    if (dto.managerId) {
+      await this.prisma.projectMember.upsert({
+        where: { projectId_employeeId: { projectId: id, employeeId: dto.managerId } },
+        create: { projectId: id, employeeId: dto.managerId, role: 'PROJECT_SUPERVISOR' },
+        update: { role: 'PROJECT_SUPERVISOR' },
+      });
+    }
 
     await this.auditService.logFromRequest(
       user,

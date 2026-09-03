@@ -23,8 +23,20 @@ export class EvaluationsService {
     const task = await this.prisma.taskAssignment.findFirst({ where: { id: dto.taskAssignmentId, deletedAt: null } });
     if (!task) throw new NotFoundException('تسک یافت نشد');
 
-    // supervisor can only evaluate own team
-    if (user.roles.includes('SUPERVISOR')) {
+    const isProjectSupervisor = task.projectId
+      ? !!(await this.prisma.project.findFirst({
+          where: { id: task.projectId, managerId: user.employeeProfileId },
+        }))
+      : false;
+    const isDirectSupervisor = user.roles.includes('SUPERVISOR') &&
+      !!(await this.prisma.employeeProfile.findFirst({
+        where: { id: task.employeeId, supervisorId: user.employeeProfileId },
+      }));
+    // Evaluation is only possible for a submitted task by its project supervisor.
+    if (task.status !== 'SUBMITTED' || (!isProjectSupervisor && !isDirectSupervisor && !this.dataScope.isAdmin(user))) {
+      throw new ForbiddenException('فقط سرپرست پروژه می‌تواند تسک ارسال‌شده را ارزیابی کند');
+    }
+    if (user.roles.includes('SUPERVISOR') && !isProjectSupervisor) {
       const emp = await this.prisma.employeeProfile.findUnique({ where: { id: task.employeeId } });
       if (emp?.supervisorId !== user.employeeProfileId) throw new ForbiddenException('کارمند خارج از تیم شما');
     }
@@ -42,6 +54,9 @@ export class EvaluationsService {
     const score100 = Math.round((average / 5) * 100);
 
     const result = dto.result || 'APPROVED';
+    if (!['APPROVED', 'APPROVED_WITH_COMMENT', 'NEED_REVISION'].includes(result)) {
+      throw new BadRequestException('نتیجه ارزیابی فقط می‌تواند تأیید یا نیازمند اصلاح باشد');
+    }
     const evaluation = await this.prisma.supervisorEvaluation.upsert({
       where: { taskAssignmentId: dto.taskAssignmentId },
       create: {

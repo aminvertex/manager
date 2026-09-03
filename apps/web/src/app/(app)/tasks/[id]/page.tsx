@@ -43,8 +43,8 @@ interface TaskDetail {
     expectedOutput: string | null; standardDurationMinutes: number | null;
     requiresSupervisorApproval: boolean;
   };
-  employee: { id: string; firstName: string; lastName: string };
-  project: { name: string } | null;
+  employee: { id: string; firstName: string; lastName: string; supervisorId?: string | null };
+  project: { id: string; name: string; managerId?: string | null } | null;
   statusHistory: Array<{ fromStatus: string | null; toStatus: string; comment: string | null; createdAt: string; changedBy?: { id: string; firstName: string; lastName: string } }>;
   revisions: Array<{ id: string; revisionNumber: number; reason: string | null; comment: string | null; status: string; requestedAt: string; dueDate: string | null }>;
   attachments: Array<{ id: string; originalName: string; version: number; size: number | null; createdAt: string }>;
@@ -59,7 +59,6 @@ export default function TaskDetailPage() {
   const id = params.id as string;
   const { user } = useAuth();
   const qc = useQueryClient();
-  const isSupervisor = user?.roles.includes(RoleCode.SUPERVISOR) || user?.roles.includes(RoleCode.SUPER_ADMIN) || user?.roles.includes(RoleCode.CEO);
 
   const [showSubmit, setShowSubmit] = useState(searchParams.get('action') === 'submit');
   const [showRevision, setShowRevision] = useState(false);
@@ -131,13 +130,10 @@ export default function TaskDetailPage() {
 
   const canStart = ['ASSIGNED', 'NOT_STARTED'].includes(t.status);
   const canSubmit = ['IN_PROGRESS', 'NEED_REVISION'].includes(t.status);
-  const canReview = isSupervisor && ['SUBMITTED', 'UNDER_REVIEW', 'RESUBMITTED'].includes(t.status);
-  const canEditProgress =
-    t.employee?.id === user?.employeeProfile?.id ||
-    user?.roles?.includes(RoleCode.SUPER_ADMIN) ||
-    user?.roles?.includes(RoleCode.CEO) ||
-    user?.roles?.includes(RoleCode.TECH_COMMITTEE_MANAGER) ||
-    user?.roles?.includes(RoleCode.TECH_COMMITTEE_MEMBER);
+  const canReview = !!user && !!t.project && ['SUBMITTED'].includes(t.status) &&
+    (t.project.managerId === user.employeeProfile?.id ||
+      (user.roles.includes(RoleCode.SUPERVISOR) && t.employee.supervisorId === user.employeeProfile?.id));
+  const canEditProgress = t.employee?.id === user?.employeeProfile?.id;
 
   return (
     <div className="space-y-6">
