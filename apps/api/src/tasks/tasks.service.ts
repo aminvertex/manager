@@ -246,13 +246,13 @@ if (user.roles.includes('SUPERVISOR') && !this.dataScope.isAdmin(user) && !isPer
       },
     });
     if (!task) throw new NotFoundException('تسک یافت نشد');
-    const uploaderIds = [...new Set(task.attachments.map((attachment) => attachment.uploadedById).filter((id): id is string => !!id))];
+    const uploaderIds = [...new Set(task.attachments.map((attachment: { uploadedById: string | null }) => attachment.uploadedById).filter((id: string | null): id is string => !!id))];
     const uploaders = await this.prisma.user.findMany({
       where: { id: { in: uploaderIds } },
       select: { id: true, employeeProfile: { select: { firstName: true, lastName: true } } },
     });
-    const uploaderMap = new Map(uploaders.map((uploader) => [uploader.id, uploader]));
-    const attachments = task.attachments.map((attachment) => ({
+    const uploaderMap = new Map(uploaders.map((uploader: { id: string; employeeProfile: { firstName: string; lastName: string } | null }) => [uploader.id, uploader]));
+    const attachments = task.attachments.map((attachment: { uploadedById: string | null }) => ({
       ...attachment,
       uploadedBy: attachment.uploadedById ? uploaderMap.get(attachment.uploadedById) : undefined,
     }));

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Loader2, ClipboardCheck, CheckCircle2 } from 'lucide-react';
+import { Loader2, ClipboardCheck, CheckCircle2, LockKeyhole } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -12,6 +12,8 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from '@/hooks/use-toast';
 import { DAILY_CHECKLIST_ITEMS } from '@amatis/shared';
 import { toPersianDigits, toJalaliDate } from '@/lib/date';
+import { ChecklistCalendar } from '@/components/checklists/checklist-calendar';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 type Answer = 'YES' | 'NO' | 'NA';
 
@@ -19,10 +21,11 @@ export default function DailyChecklistPage() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const empId = user?.employeeProfile?.id;
+  const date = new Date().toISOString().split('T')[0];
   const [answers, setAnswers] = useState<Record<string, Answer>>({});
   const [saving, setSaving] = useState(false);
-
-  const date = new Date().toISOString().split('T')[0];
+  const [selectedDate, setSelectedDate] = useState(date);
+  const [detailsDate, setDetailsDate] = useState<string | null>(null);
 
   const { data: history, isLoading } = useQuery({
     queryKey: ['daily-checklist', empId],
@@ -30,7 +33,10 @@ export default function DailyChecklistPage() {
     enabled: !!empId,
   });
 
-  const today = history?.data?.find((h) => h.date === date);
+  const today = history?.data?.find((h) => h.date.slice(0, 10) === selectedDate);
+  const now = new Date();
+  const locked = now.getHours() > 23 || (now.getHours() === 23 && now.getMinutes() >= 50);
+  const isToday = selectedDate === date;
 
   useEffect(() => {
     if (today?.items) {
@@ -39,7 +45,7 @@ export default function DailyChecklistPage() {
   }, [today?.date]);
 
   const autoSave = useMutation({
-    mutationFn: (items: Record<string, Answer>) => api.post(`/checklists/daily/${empId}`, { date, items }),
+    mutationFn: (items: Record<string, Answer>) => api.post(`/checklists/daily/${empId}`, { date: selectedDate, items }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['daily-checklist'] }); setSaving(false); },
     onError: () => setSaving(false),
   });
@@ -75,6 +81,11 @@ export default function DailyChecklistPage() {
       )}
 
       <Card>
+        <CardHeader><CardTitle>تقویم وضعیت روزانه</CardTitle><CardDescription>تیک: کامل، تعجب: ناقص، ضربدر: بدون ثبت</CardDescription></CardHeader>
+        <CardContent><ChecklistCalendar month={new Date()} records={history?.data || []} selected={selectedDate} onSelect={setSelectedDate} disabled={(key) => key !== date} /></CardContent>
+      </Card>
+      <Card className={!isToday || locked ? 'relative overflow-hidden' : ''}>
+        {(!isToday || locked) && <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/65 backdrop-blur-sm"><div className="text-center"><LockKeyhole className="mx-auto h-8 w-8 text-muted-foreground" /><p className="mt-2 text-sm font-medium">{locked ? 'مهلت ثبت امروز ساعت ۲۳:۵۰ به پایان رسیده است' : 'فقط چک‌لیست امروز قابل ثبت است'}</p></div></div>}
         <CardHeader>
           <CardTitle>آیتم‌های امروز</CardTitle>
           <CardDescription>{toPersianDigits(answered)} از {toPersianDigits(total)} پاسخ داده شده</CardDescription>
@@ -119,6 +130,11 @@ export default function DailyChecklistPage() {
           </div>
         </CardContent>
       </Card>
+      <Dialog open={!!detailsDate} onOpenChange={(open) => !open && setDetailsDate(null)}>
+        <DialogContent><DialogHeader><DialogTitle>جزئیات چک‌لیست {detailsDate}</DialogTitle></DialogHeader>
+          <div className="space-y-2">{(history?.data?.find((h) => h.date.slice(0, 10) === detailsDate)?.items ? Object.entries(history.data.find((h) => h.date.slice(0, 10) === detailsDate)!.items) : []).map(([item, value]) => <div key={item} className="flex justify-between rounded-lg border p-2 text-sm"><span>{item}</span><Badge variant="outline">{value}</Badge></div>)}</div>
+        </DialogContent>
+      </Dialog>
 
       {history?.data && history.data.length > 0 && (
         <Card>

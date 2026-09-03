@@ -2,12 +2,15 @@
 
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Loader2, ClipboardCheck, CheckCircle2 } from 'lucide-react';
+import { Loader2, ClipboardCheck, CheckCircle2, LockKeyhole } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { toPersianDigits } from '@/lib/date';
+import { ChecklistCalendar } from '@/components/checklists/checklist-calendar';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Badge } from '@/components/ui/badge';
 
 const WEEKLY_ITEMS = [
   'تمام Taskهای هفته بررسی شد',
@@ -28,6 +31,7 @@ export default function WeeklyChecklistPage() {
   const empId = user?.employeeProfile?.id;
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [detailsDate, setDetailsDate] = useState<string | null>(null);
 
   const today = new Date();
   const dayOfWeek = today.getDay();
@@ -39,10 +43,12 @@ export default function WeeklyChecklistPage() {
     queryFn: async () => {
       if (!empId) return null;
       const res = await api.get<{ data: any }>(`/checklists/weekly/${empId}`);
-      return res.data || null;
+      return Array.isArray(res.data) ? res.data : [];
     },
     enabled: !!empId,
   });
+  const current = existing?.find((item: any) => item.weekStart?.slice(0, 10) === weekStart.toISOString().slice(0, 10));
+  const locked = today.getDay() > 5 || (today.getDay() === 5 && (today.getHours() > 23 || (today.getHours() === 23 && today.getMinutes() >= 50)));
 
   const submit = useMutation({
     mutationFn: (items: Record<string, string>) => api.post(`/checklists/weekly/${empId}`, {
@@ -55,8 +61,8 @@ export default function WeeklyChecklistPage() {
   });
 
   useEffect(() => {
-    if (existing?.items) setAnswers(existing.items as Record<string, string>);
-  }, [existing?.weekStart]);
+    if (current?.items) setAnswers(current.items as Record<string, string>);
+  }, [current?.weekStart]);
 
   const handleClick = (item: string, opt: string) => {
     const next = { ...answers, [item]: opt };
@@ -75,8 +81,10 @@ export default function WeeklyChecklistPage() {
         <h1 className="text-2xl font-bold">چک‌لیست هفتگی</h1>
         <p className="text-muted-foreground text-sm">بررسی فعالیت‌های هفتگی</p>
       </div>
+      <Card><CardHeader><CardTitle>تقویم وضعیت هفتگی</CardTitle><CardDescription>هفته جاری تا جمعه ساعت ۲۳:۵۰ قابل ثبت است</CardDescription></CardHeader><CardContent><ChecklistCalendar month={today} records={(existing || []).map((item: any) => ({ date: item.weekStart, weekStart: item.weekStart, completionRate: item.completionRate, items: item.items }))} selected={weekStart.toISOString().slice(0, 10)} onSelect={setDetailsDate} disabled={(key) => key !== weekStart.toISOString().slice(0, 10)} /></CardContent></Card>
 
-      <Card>
+      <Card className={locked ? 'relative overflow-hidden' : ''}>
+        {locked && <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/65 backdrop-blur-sm"><div className="text-center"><LockKeyhole className="mx-auto h-8 w-8 text-muted-foreground" /><p className="mt-2 text-sm">مهلت ثبت چک‌لیست هفتگی به پایان رسیده است</p></div></div>}
         <CardHeader>
           <CardTitle>بررسی هفته</CardTitle>
           <CardDescription>هفته {toPersianDigits(Math.ceil(today.getDate() / 7))} ماه جاری</CardDescription>
@@ -122,6 +130,7 @@ export default function WeeklyChecklistPage() {
           </div>
         </CardContent>
       </Card>
+      <Dialog open={!!detailsDate} onOpenChange={(open) => !open && setDetailsDate(null)}><DialogContent><DialogHeader><DialogTitle>جزئیات چک‌لیست هفتگی</DialogTitle></DialogHeader><div className="space-y-2">{Object.entries((existing?.find((item: any) => item.weekStart?.slice(0, 10) === detailsDate)?.items || {}) as Record<string, string>).map(([item, value]) => <div key={item} className="flex justify-between rounded-lg border p-2 text-sm"><span>{item}</span><Badge variant="outline">{value}</Badge></div>)}</div></DialogContent></Dialog>
     </div>
   );
 }
