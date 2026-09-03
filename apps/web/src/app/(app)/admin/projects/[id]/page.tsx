@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { api, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -15,7 +15,7 @@ import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Loader2, Users, ListTodo, CheckCircle2, Clock, AlertTriangle, TrendingUp, Plus, ArrowRight, BarChart3, Download, Columns3, FolderKanban, Send, Mic, Paperclip, Pin, MessageSquare, ChevronRight, MoreVertical } from 'lucide-react';
+import { Loader2, Users, ListTodo, CheckCircle2, Clock, AlertTriangle, TrendingUp, Plus, ArrowRight, BarChart3, Download, Columns3, FolderKanban, MessageSquare } from 'lucide-react';
 import { toJalaliDate, toJalaliDateTime, toPersianDigits } from '@/lib/date';
 import { JalaliDatePicker } from '@/components/ui/jalali-date-picker';
 import { downloadFile, resolveAvatarUrl } from '@/lib/utils';
@@ -30,7 +30,6 @@ const chatColors = { grid: 'hsl(var(--border))', axis: 'hsl(var(--muted-foregrou
 
 interface MemberReport { id: string; firstName: string; lastName: string; employeeCode: string; tasks: number; completed: number; inProgress: number; delayed: number; pending: number; kpi: number | null }
 interface ProjectReport { project: any; totalTasks: number; completedTasks: number; inProgressTasks: number; delayedTasks: number; progress: number; members: MemberReport[] }
-interface ChatMsg { id: string; content: string; createdAt: string; senderId: string; type?: string; pinned?: boolean; editedAt?: string; readAt?: string | null; sender?: { id: string; mobile: string; employeeProfile?: { id: string; firstName: string; lastName: string; avatarUrl?: string } } }
 
 export default function ProjectDetailPage() {
   const params = useParams();
@@ -44,24 +43,10 @@ export default function ProjectDetailPage() {
   const [showMember, setShowMember] = useState(false);
   const [memberId, setMemberId] = useState('');
   const [selectedTask, setSelectedTask] = useState<any>(null);
-  const [editingChatId, setEditingChatId] = useState<string | null>(null);
-  const [editingChatText, setEditingChatText] = useState('');
-  const [chatMenuId, setChatMenuId] = useState<string | null>(null);
   const [kanbanEmployeeFilter, setKanbanEmployeeFilter] = useState('');
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [taskForm, setTaskForm] = useState({ taskTemplateId: '', employeeId: '', projectId: id, deadline: '', priority: 'MEDIUM' });
-  const [chatMsg, setChatMsg] = useState('');
-  const [chatMsgs, setChatMsgs] = useState<ChatMsg[]>([]);
   const [chatRoomId, setChatRoomId] = useState<string | null>(null);
-  const [isRecording, setIsRecording] = useState(false);
-  const [recTime, setRecTime] = useState(0);
-  const [uploadingFile, setUploadingFile] = useState(false);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const recTimerRef = useRef<ReturnType<typeof setInterval>>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const chatBottomRef = useRef<HTMLDivElement>(null);
-  const chatInputRef = useRef<HTMLInputElement>(null);
 
   const { data: report, isLoading } = useQuery({
     queryKey: ['project-report', id],
@@ -120,73 +105,6 @@ export default function ProjectDetailPage() {
     else if (report && !projectRoom) ensureRoom.mutate();
   }, [projectRoom?.id, report]);
 
-  const { data: chatData } = useQuery({
-    queryKey: ['project-chat-msgs', chatRoomId],
-    queryFn: () => api.get<{ data: ChatMsg[] }>(`/chat/rooms/${chatRoomId}/messages?limit=50`),
-    enabled: !!chatRoomId,
-    refetchInterval: 5000,
-  });
-  useEffect(() => { if (chatData?.data) setChatMsgs(chatData.data); }, [chatData]);
-  useEffect(() => { chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [chatMsgs]);
-
-  const sendChatMsg = useMutation({
-    mutationFn: () => api.post(`/chat/rooms/${chatRoomId}/messages`, { content: chatMsg }),
-    onSuccess: () => { setChatMsg(''); qc.invalidateQueries({ queryKey: ['project-chat-msgs', chatRoomId] }); },
-    onError: (e) => toast({ title: 'خطا', description: (e as ApiError).message, variant: 'destructive' }),
-  });
-
-  const pinMsg = useMutation({
-    mutationFn: ({ msgId, pinned }: { msgId: string; pinned: boolean }) => api.post(`/chat/messages/${msgId}/pin`, { pinned }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['project-chat-msgs', chatRoomId] }),
-  });
-  const editChatMsg = useMutation({
-    mutationFn: ({ id: msgId, content }: { id: string; content: string }) => api.patch(`/chat/messages/${id}`, { content }),
-    onSuccess: () => { setEditingChatId(null); qc.invalidateQueries({ queryKey: ['project-chat-msgs', chatRoomId] }); },
-  });
-  const deleteChatMsg = useMutation({
-    mutationFn: (msgId: string) => api.delete(`/chat/messages/${msgId}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['project-chat-msgs', chatRoomId] }),
-  });
-
-  const uploadChatFile = async (file: File) => {
-    if (!chatRoomId) return;
-    if (file.size > 50 * 1024 * 1024) { alert('حجم فایل حداکثر ۵۰ مگابایت'); return; }
-    setUploadingFile(true);
-    const fd = new FormData(); fd.append('file', file);
-    try {
-      await api.upload(`/chat/rooms/${chatRoomId}/upload`, fd);
-      qc.invalidateQueries({ queryKey: ['project-chat-msgs', chatRoomId] });
-    } catch (e) {
-      toast({ title: 'خطا در آپلود', description: (e as ApiError).message, variant: 'destructive' });
-    } finally { setUploadingFile(false); }
-  };
-
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
-      const recorder = new MediaRecorder(stream, { mimeType });
-      chunksRef.current = [];
-      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-      recorder.onstop = () => {
-        stream.getTracks().forEach(t => t.stop());
-        const blob = new Blob(chunksRef.current, { type: mimeType });
-        const ext = mimeType.includes('webm') ? 'webm' : 'mp4';
-        const fd = new FormData(); fd.append('file', blob, `voice-${Date.now()}.${ext}`);
-        if (chatRoomId) api.upload(`/chat/rooms/${chatRoomId}/upload`, fd)
-          .then(() => qc.invalidateQueries({ queryKey: ['project-chat-msgs', chatRoomId] }))
-          .catch((e) => toast({ title: 'خطا در ارسال ویس', description: (e as ApiError).message, variant: 'destructive' }));
-        if (recTimerRef.current) clearInterval(recTimerRef.current);
-        setIsRecording(false); setRecTime(0);
-      };
-      mediaRecorderRef.current = recorder;
-      recorder.start(); setIsRecording(true); setRecTime(0);
-      recTimerRef.current = setInterval(() => setRecTime(t => t + 1), 1000);
-    } catch { alert('دسترسی به میکروفون مجاز نیست'); }
-  };
-  const stopRecording = () => mediaRecorderRef.current?.stop();
-  const cancelRecording = () => { if (recTimerRef.current) clearInterval(recTimerRef.current); mediaRecorderRef.current?.stream?.getTracks()?.forEach(t => t.stop()); mediaRecorderRef.current = null; setIsRecording(false); setRecTime(0); };
-
   const addMember = useMutation({
     mutationFn: () => api.post(`/projects/${id}/members`, { employeeId: memberId }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['project-report', id] }); qc.invalidateQueries({ queryKey: ['project-tasks', id] }); setShowMember(false); setMemberId(''); },
@@ -224,7 +142,6 @@ export default function ProjectDetailPage() {
 
   const d = report.data;
   const chartData = d.members.map(m => ({ name: `${m.firstName} ${m.lastName}`, tasks: m.tasks, completed: m.completed, delayed: m.delayed }));
-  const pinnedMsgs = chatMsgs.filter(m => m.pinned && m.type !== 'SYSTEM');
 
   return (
     <div className="space-y-6">
@@ -241,7 +158,8 @@ export default function ProjectDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="outline" onClick={() => downloadFile(`/exports/project/${id}`, `پروژه-${d.project.code}.xlsx`)}><Download className="h-4 w-4 ml-1" /> Excel</Button>
+          {(isAdmin || (hasRole(RoleCode.SUPERVISOR) && d.project.managerId === user?.employeeProfile?.id)) && <Button size="sm" variant="outline" onClick={() => downloadFile(`/exports/project/${id}`, `پروژه-${d.project.code}.xlsx`)}><Download className="h-4 w-4 ml-1" /> Excel</Button>}
+          <Button size="sm" variant="outline" onClick={() => chatRoomId && router.push(`/chat?room=${chatRoomId}`)} disabled={!chatRoomId}><MessageSquare className="h-4 w-4 ml-1" /> گفتگو</Button>
           <Badge variant={d.project.isActive ? 'default' : 'secondary'}>{d.project.isActive ? 'فعال' : 'غیرفعال'}</Badge>
         </div>
       </motion.div>
@@ -380,55 +298,6 @@ export default function ProjectDetailPage() {
         </CardContent>
       </Card>
 
-      {/* Embedded Chat */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2"><MessageSquare className="h-4 w-4" /> گفتگوی پروژه</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          <div className="flex flex-col h-[400px]">
-            {pinnedMsgs.length > 0 && <div className="px-4 pt-2 pb-1 border-b bg-warning/5">{pinnedMsgs.map(p => <div key={p.id} className="flex items-center gap-2 text-xs py-0.5"><Pin className="h-3 w-3 text-warning shrink-0" /><span className="text-muted-foreground truncate">{p.sender?.employeeProfile?.firstName || 'کاربر'}: {p.content}</span></div>)}</div>}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
-              {chatMsgs.filter(m => m.type !== 'SYSTEM').map((m, index, visibleMessages) => {
-                const isMine = m.senderId === user?.id;
-                const firstUnread = !isMine && !m.readAt && (index === 0 || visibleMessages[index - 1]?.readAt);
-                return <div key={m.id} className={`flex ${isMine ? 'justify-start' : 'justify-end'}`}>
-                  {firstUnread && <div className="absolute left-1/2 -translate-x-1/2 -mt-5 rounded-full bg-primary/10 px-3 py-1 text-[10px] text-primary">پیام‌های جدید</div>}
-                  <div className={`max-w-[75%] rounded-lg px-3 py-2 ${isMine ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>
-                    {!isMine && m.sender?.employeeProfile && <p className="text-[10px] opacity-70 mb-1">{m.sender.employeeProfile.firstName} {m.sender.employeeProfile.lastName}</p>}
-                    {editingChatId === m.id ? <div className="flex gap-1"><Input value={editingChatText} onChange={(e) => setEditingChatText(e.target.value)} className="h-7 text-xs" /><Button size="sm" onClick={() => editChatMsg.mutate({ id: m.id, content: editingChatText })}>ذخیره</Button></div> : m.type === 'FILE' ? <a href={JSON.parse(m.content).url} target="_blank" rel="noreferrer" className="underline text-sm break-words">{JSON.parse(m.content).fileName}</a> : <p className="text-sm break-words">{m.content}</p>}
-                    <div className={`flex items-center gap-2 mt-1 ${isMine ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
-                      <span className="text-[10px]">{toJalaliDateTime(m.createdAt)}</span>
-                      {m.pinned && <Pin className="h-3 w-3" />}
-                      <div className="relative mr-auto">
-                        <button type="button" aria-label="گزینه‌های پیام" onClick={() => setChatMenuId(chatMenuId === m.id ? null : m.id)}><MoreVertical className="h-3.5 w-3.5" /></button>
-                        {chatMenuId === m.id && <div className="absolute bottom-5 left-0 z-20 min-w-28 rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg">
-                          <button type="button" className="block w-full rounded px-2 py-1 text-right text-xs hover:bg-muted" onClick={() => { pinMsg.mutate({ msgId: m.id, pinned: !m.pinned }); setChatMenuId(null); }}>{m.pinned ? 'برداشتن سنجاق' : 'سنجاق'}</button>
-                          {isMine && m.type !== 'FILE' && <><button type="button" className="block w-full rounded px-2 py-1 text-right text-xs hover:bg-muted" onClick={() => { setEditingChatId(m.id); setEditingChatText(m.content); setChatMenuId(null); }}>ویرایش</button><button type="button" className="block w-full rounded px-2 py-1 text-right text-xs hover:bg-muted" onClick={() => { deleteChatMsg.mutate(m.id); setChatMenuId(null); }}>حذف</button></>}
-                        </div>}
-                      </div>
-                    </div>
-                  </div>
-                </div>;
-              })}
-              <div ref={chatBottomRef} />
-            </div>
-            <div className="p-3 border-t flex gap-2 items-center">
-              {isRecording ? (
-                <><span className="text-xs text-destructive font-medium whitespace-nowrap"><span className="h-2 w-2 rounded-full bg-destructive animate-pulse inline-block ml-1" />{toPersianDigits(recTime)}ث</span>
-                  <Button size="sm" variant="destructive" onClick={stopRecording}><Send className="h-4 w-4 ml-1" /> ارسال</Button>
-                  <Button size="sm" variant="ghost" onClick={cancelRecording}>انصراف</Button></>
-              ) : (
-                <><Button variant="ghost" size="icon" onClick={startRecording} disabled={!chatRoomId}><Mic className="h-4 w-4" /></Button>
-                  <Button variant="ghost" size="icon" disabled={!chatRoomId || uploadingFile} onClick={() => fileInputRef.current?.click()}><Paperclip className="h-4 w-4" /></Button>
-                  <input ref={fileInputRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadChatFile(f); e.target.value = ''; }} /></>
-              )}
-              <Input ref={chatInputRef} value={chatMsg} onChange={(e) => setChatMsg(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && chatMsg.trim() && sendChatMsg.mutate()} placeholder="پیام..." className="flex-1" />
-              <Button onClick={() => sendChatMsg.mutate()} disabled={!chatMsg.trim() || !chatRoomId}><Send className="h-4 w-4" /></Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
 
       {/* Dialogs */}
       <Dialog open={showCreateTask} onOpenChange={setShowCreateTask}>
@@ -465,7 +334,7 @@ export default function ProjectDetailPage() {
       <Dialog open={!!selectedTask} onOpenChange={(o) => !o && setSelectedTask(null)}>
         <DialogContent className="max-w-6xl h-[92vh] p-0 overflow-hidden">
           <DialogHeader className="sr-only"><DialogTitle>{selectedTask?.taskTemplate?.name || 'جزئیات تسک'}</DialogTitle></DialogHeader>
-          {selectedTask && <iframe title="جزئیات تسک" src={`/tasks/${selectedTask.id}`} className="h-full w-full border-0" />}
+          {selectedTask && <iframe title="جزئیات تسک" src={`/tasks/${selectedTask.id}?embedded=1`} className="h-full w-full border-0" />}
         </DialogContent>
       </Dialog>
       <Dialog open={showMember} onOpenChange={setShowMember}>

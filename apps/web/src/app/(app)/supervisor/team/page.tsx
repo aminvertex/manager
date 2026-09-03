@@ -1,7 +1,8 @@
 ﻿'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { useAuth } from '@/lib/auth-context';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -19,8 +20,10 @@ interface Employee {
   supervisor?: { firstName: string; lastName: string };
   primaryProject?: { name: string };
 }
+interface Project { id: string; name: string; managerId?: string }
 
 export default function SupervisorTeamPage() {
+  const { user } = useAuth();
   const { data: teamData, isLoading } = useQuery({
     queryKey: ['supervisor-team'],
     queryFn: () => api.get<{ success: boolean; data: Employee[]; meta: { total: number } }>('/employees?limit=50'),
@@ -30,8 +33,20 @@ export default function SupervisorTeamPage() {
     queryKey: ['supervisor-team-stats'],
     queryFn: () => api.get<{ data: Array<{ employee: { id: string }; status: string; isDelayed: boolean }> }>('/tasks?limit=500'),
   });
+  const { data: projectsData } = useQuery({
+    queryKey: ['supervisor-team-projects'],
+    queryFn: () => api.get<{ data: Project[] }>('/projects?limit=100'),
+  });
+  const managedProjects = (projectsData?.data || []).filter((p) => p.managerId === user?.employeeProfile?.id);
+  const projectMembers = useQueries({
+    queries: managedProjects.map((project) => ({
+      queryKey: ['supervisor-team-project-members', project.id],
+      queryFn: () => api.get<{ data: Employee[] }>(`/employees?limit=100&projectId=${project.id}`),
+      enabled: !!user,
+    })),
+  });
 
-  const team = teamData?.data || [];
+  const team = (teamData?.data || []).filter((employee) => employee.id !== user?.employeeProfile?.id);
   const allTasks = taskData?.data || [];
   const stats = {
     total: allTasks.length,
@@ -57,8 +72,11 @@ export default function SupervisorTeamPage() {
       {isLoading ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-32 rounded-xl" />)}</div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2">
-          {team.map((emp, index) => (
+        <div className="space-y-8">
+          {(managedProjects.length ? managedProjects : [{ id: 'team', name: 'اعضای تیم', managerId: '' }]).map((project, projectIndex) => {
+            const members = managedProjects.length ? (projectMembers[projectIndex]?.data?.data || []).filter((employee) => employee.id !== user?.employeeProfile?.id) : team;
+            return <section key={project.id} className="space-y-3"><div><h2 className="text-lg font-bold">{project.name}</h2><p className="text-xs text-muted-foreground">{toPersianDigits(members.length)} عضو پروژه</p></div><div className="grid gap-4 md:grid-cols-2">
+          {members.map((emp, index) => (
             <motion.div key={emp.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.04 }}>
             <Card className="group hover:shadow-xl hover:-translate-y-1 transition-all duration-300 border-primary/10">
                 <CardHeader className="pb-3">
@@ -79,7 +97,8 @@ export default function SupervisorTeamPage() {
                 </CardContent>
               </Card>
             </motion.div>
-          ))}
+          ))}</div></section>;
+          })}
         </div>
       )}
     </div>

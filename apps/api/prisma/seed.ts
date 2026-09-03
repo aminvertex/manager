@@ -360,6 +360,24 @@ async function main() {
     data: { supervisorId: employeeIds["EMP-0007"] },
   });
 
+  const supervisorId = employeeIds["EMP-0003"];
+  const managedProjectCodes = ["ASSESS-PSY", "EKSEIR-DEL"];
+  for (const code of managedProjectCodes) {
+    await prisma.project.update({ where: { id: projects[code] }, data: { managerId: supervisorId } });
+  }
+  const memberships = [
+    ["ASSESS-PSY", "EMP-0004"], ["ASSESS-PSY", "EMP-0005"],
+    ["EKSEIR-DEL", "EMP-0004"], ["EKSEIR-DEL", "EMP-0006"],
+    ["BAMBOO", "EMP-0005"], ["RND", "EMP-0006"],
+  ];
+  for (const [projectCode, employeeCode] of memberships) {
+    await prisma.projectMember.upsert({
+      where: { projectId_employeeId: { projectId: projects[projectCode], employeeId: employeeIds[employeeCode] } },
+      create: { projectId: projects[projectCode], employeeId: employeeIds[employeeCode], role: "MEMBER" },
+      update: {},
+    });
+  }
+
   // Task Templates - 4 Week Standard Program
   const TASK_TEMPLATES = [
     // Week 1 - Standardization
@@ -439,14 +457,17 @@ async function main() {
   // Demo task assignments for employees with realistic statuses
   const templateList = await prisma.taskTemplate.findMany({ take: 12, orderBy: { createdAt: "asc" } });
   const empIds = [employeeIds["EMP-0004"], employeeIds["EMP-0005"], employeeIds["EMP-0006"]];
-  const projectsList = await prisma.project.findMany({ take: 3 });
+  const projectsList = await prisma.project.findMany({ where: { code: { in: ["ASSESS-PSY", "EKSEIR-DEL", "BAMBOO"] } }, orderBy: { code: "asc" } });
   let aCount = await prisma.taskAssignment.count();
   const statuses = ["APPROVED", "APPROVED", "IN_PROGRESS", "DELAYED", "NEED_REVISION", "APPROVED"];
 
   for (let i = 0; i < 18; i++) {
     const template = templateList[i % templateList.length];
     const employeeId = empIds[i % empIds.length];
-    const project = projectsList[i % projectsList.length];
+    const compatibleProjects = await prisma.project.findMany({
+      where: { members: { some: { employeeId } }, code: { in: projectsList.map((p) => p.code) } },
+    });
+    const project = compatibleProjects[i % compatibleProjects.length];
     const status = statuses[i % statuses.length];
     aCount++;
     const deadline = new Date();

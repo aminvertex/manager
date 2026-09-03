@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.module';
 import { JwtPayload } from '../common/decorators/get-user.decorator';
 import { RoleCode } from '@amatis/types';
@@ -63,6 +63,9 @@ export class ExportsService {
       include: { members: { include: { employee: { select: { id: true, firstName: true, lastName: true, employeeCode: true } } } } },
     });
     if (!project) throw new NotFoundException('پروژه یافت نشد');
+    if (user.roles.includes(RoleCode.SUPERVISOR) && !this.dataScope.isAdmin(user) && project.managerId !== user.employeeProfileId) {
+      throw new ForbiddenException('فقط سرپرست همان پروژه می‌تواند خروجی بگیرد');
+    }
 
     const tasks = await this.prisma.taskAssignment.findMany({
       where: { projectId, deletedAt: null },
