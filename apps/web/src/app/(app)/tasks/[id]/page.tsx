@@ -91,7 +91,7 @@ export default function TaskDetailPage() {
   });
 
   const updateProgress = useMutation({
-    mutationFn: () => api.patch(`/tasks/${id}/progress`, { progress }),
+    mutationFn: (value: number) => api.patch(`/tasks/${id}/progress`, { progress: value }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['task', id] }); toast({ title: 'پیشرفت ثبت شد' }); },
     onError: (e) => toast({ title: 'خطا', description: (e as ApiError).message, variant: 'destructive' }),
   });
@@ -185,6 +185,7 @@ export default function TaskDetailPage() {
   const canStart = hasFullStatusAccess || (isAssignee && ['ASSIGNED', 'NOT_STARTED', 'NEED_REVISION'].includes(t.status));
   const canSubmit = hasFullStatusAccess || (isAssignee && t.status === 'IN_PROGRESS');
   const canReview = !!user && !!t.project && ['SUBMITTED'].includes(t.status) &&
+    t.employee?.id !== user.employeeProfile?.id &&
     (t.project.managerId === user.employeeProfile?.id ||
       (user.roles.includes(RoleCode.SUPERVISOR) && t.employee.supervisorId === user.employeeProfile?.id));
   const taskLocked = ['NOT_STARTED', 'ASSIGNED'].includes(t.status);
@@ -203,7 +204,7 @@ export default function TaskDetailPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {canStart && <Button onClick={() => setShowStatusChange(true)}><Play className="h-4 w-4 ml-2" />شروع تسک</Button>}
+          {canStart && <Button onClick={() => setStatus.mutate('IN_PROGRESS')} disabled={setStatus.isPending}><Play className="h-4 w-4 ml-2" />شروع تسک</Button>}
           {canSubmit && <Button onClick={() => setShowStatusChange(true)}><Send className="h-4 w-4 ml-2" />تحویل تسک</Button>}
           {canReview && <Button variant="outline" onClick={() => setShowRevision(true)}><RefreshCcw className="h-4 w-4 ml-2" />درخواست اصلاح</Button>}
           {canReview && <Button onClick={() => setShowEvaluate(true)}><CheckCircle2 className="h-4 w-4 ml-2" />ارزیابی</Button>}
@@ -260,8 +261,19 @@ export default function TaskDetailPage() {
                   </div>
                   {canEditProgress && (
                     <div className="flex items-center gap-4 pt-2">
-                      <Input type="number" min={0} max={100} value={progress || t.progress} onChange={(e) => setProgress(Number(e.target.value))} className="w-28" />
-                      <Button size="sm" variant="outline" onClick={() => updateProgress.mutate()}>ثبت پیشرفت</Button>
+                      <div className="flex flex-wrap gap-2">
+                        {[0, 25, 50, 75, 100].map((value) => (
+                          <Button
+                            key={value}
+                            size="sm"
+                            variant={t.progress === value ? 'default' : 'outline'}
+                            disabled={updateProgress.isPending}
+                            onClick={() => { setProgress(value); updateProgress.mutate(value); }}
+                          >
+                            {value}٪
+                          </Button>
+                        ))}
+                      </div>
                     </div>
                   )}
                   {t.isDelayed && t.delayDays > 0 && (

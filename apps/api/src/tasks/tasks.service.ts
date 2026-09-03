@@ -280,6 +280,36 @@ if (user.roles.includes('SUPERVISOR') && !this.dataScope.isAdmin(user) && !isPer
       this.dataScope.isAdmin(user) ||
       user.roles.includes(RoleCode.CEO) ||
       user.roles.includes(RoleCode.TECH_COMMITTEE_MANAGER);
+    // A supervisor who is also the assignee must not review their own delivery.
+    if (
+      isProjectSupervisor &&
+      isAssignee &&
+      ['APPROVED', 'NEED_REVISION'].includes(to) &&
+      !hasFullStatusAccess
+    ) {
+      const reviewers = await this.prisma.user.findMany({
+        where: {
+          isActive: true,
+          userRoles: {
+            some: {
+              role: { code: { in: [RoleCode.CEO, RoleCode.TECH_COMMITTEE_MANAGER] } },
+            },
+          },
+        },
+        select: { id: true },
+      });
+      await this.prisma.notification.createMany({
+        data: reviewers.map((reviewer) => ({
+          userId: reviewer.id,
+          type: 'TASK_REVIEW_REQUIRED',
+          title: 'Task review required',
+          message: 'A supervisor-assigned task is ready for independent review.',
+          entityType: 'TaskAssignment',
+          entityId: task.id,
+        })),
+      });
+      throw new ForbiddenException('این تسک باید توسط مدیرعامل یا مدیر فنی بررسی شود');
+    }
     if (!hasFullStatusAccess && !(STATUS_TRANSITIONS[from] || []).includes(to)) {
       throw new BadRequestException(`تغییر وضعیت از ${from} به ${to} مجاز نیست`);
     }

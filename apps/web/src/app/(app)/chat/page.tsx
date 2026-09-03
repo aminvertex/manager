@@ -195,6 +195,7 @@ export default function ChatPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadingFile, setUploadingFile] = useState(false);
+  const [fileCaption, setFileCaption] = useState('');
 
   const uploadChatFile = async (file: File) => {
     if (!activeRoom) return;
@@ -202,8 +203,10 @@ export default function ChatPage() {
     setUploadingFile(true);
     const fd = new FormData();
     fd.append('file', file);
+    if (fileCaption.trim()) fd.append('caption', fileCaption.trim());
     try {
       await api.upload(`/chat/rooms/${activeRoom}/upload`, fd);
+      setFileCaption('');
       reloadMessages(activeRoom);
     } catch (e) {
       alert((e as Error).message);
@@ -325,9 +328,21 @@ export default function ChatPage() {
                         {!isMine && m.sender?.employeeProfile && (
                           <p className="text-[10px] opacity-70 mb-1">{m.sender.employeeProfile.firstName} {m.sender.employeeProfile.lastName}</p>
                         )}
-                        {m.type === 'FILE' ? (
-                          <a href={JSON.parse(m.content).url} target="_blank" rel="noreferrer" className="underline text-sm break-words">{JSON.parse(m.content).fileName}</a>
-                        ) : editingMsg === m.id ? (
+                        {m.type === 'FILE' ? (() => {
+                          let media: { url?: string; fileName?: string; fileType?: string; caption?: string };
+                          try { media = JSON.parse(m.content); } catch { media = { fileName: m.content }; }
+                          const url = media.url || '';
+                          const type = media.fileType || '';
+                          return (
+                            <div className="space-y-2">
+                              {type.startsWith('image/') && url && <img src={url} alt={media.fileName || 'Uploaded image'} className="max-h-72 rounded-lg object-contain" />}
+                              {type.startsWith('video/') && url && <video src={url} controls className="max-h-72 max-w-full rounded-lg" />}
+                              {type.startsWith('audio/') && url && <audio src={url} controls className="w-full" />}
+                              <a href={url} target="_blank" rel="noreferrer" className="underline text-sm break-words">{media.fileName || 'فایل'}</a>
+                              {media.caption && <p className="text-sm break-words">{media.caption}</p>}
+                            </div>
+                          );
+                        })() : editingMsg === m.id ? (
                           <div className="flex gap-1">
                             <input
                               value={editText}
@@ -377,6 +392,13 @@ export default function ChatPage() {
                       {uploadingFile ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
                     </Button>
                     <input type="file" ref={fileInputRef} className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadChatFile(f); e.target.value = ''; }} />
+                    <Input
+                      value={fileCaption}
+                      onChange={(e) => setFileCaption(e.target.value)}
+                      placeholder="Caption (optional)"
+                      className="h-9 max-w-44 text-xs"
+                      disabled={!activeRoom || uploadingFile}
+                    />
                   </>
                 )}
                 <Input

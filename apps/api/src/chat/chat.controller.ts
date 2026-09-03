@@ -128,7 +128,7 @@ export class ChatController {
       cb(new BadRequestException('نوع فایل مجاز نیست'), false);
     },
   }))
-  async uploadFile(@Param('id') roomId: string, @UploadedFile() file: Express.Multer.File, @GetUser() user: JwtPayload) {
+  async uploadFile(@Param('id') roomId: string, @UploadedFile() file: Express.Multer.File, @Body('caption') caption: string, @GetUser() user: JwtPayload) {
     const member = await this.service.isRoomMember(roomId, user.sub);
     if (!member) throw new Error('دسترسی مجاز نیست');
     const url = await this.storage.uploadFile(file.path, `chat/${file.filename}`);
@@ -137,6 +137,7 @@ export class ChatController {
       fileName: file.originalname,
       fileType: file.mimetype,
       fileSize: file.size,
+      caption,
     });
     return { success: true, data: message };
   }
