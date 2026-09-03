@@ -267,7 +267,10 @@ export class EmployeesService {
       if (!this.dataScope.isAdmin(user) && !user.roles.includes(RoleCode.CEO)) {
         throw new ForbiddenException('فقط مدیر می‌تواند نقش را تغییر دهد');
       }
-      const newRole = await this.prisma.role.findUnique({ where: { code: data.roleCode } });
+      const roleCode = typeof data.roleCode === 'string' ? data.roleCode : undefined;
+      const newRole = roleCode
+        ? await this.prisma.role.findUnique({ where: { code: roleCode } })
+        : null;
       if (newRole) {
         await this.prisma.userRole.deleteMany({ where: { userId: employee.userId } });
         await this.prisma.userRole.create({ data: { userId: employee.userId, roleId: newRole.id } });
