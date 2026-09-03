@@ -1,4 +1,4 @@
-﻿import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, UseInterceptors, UploadedFile, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, UseInterceptors, UploadedFile, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -99,6 +99,13 @@ export class TasksController {
   async uploadAttachment(@Param('id') id: string, @UploadedFile() file: Express.Multer.File, @GetUser() user: JwtPayload) {
     const task = await this.prisma.taskAssignment.findFirst({ where: { id, deletedAt: null } });
     if (!task) throw new NotFoundException('تسک یافت نشد');
+    const isAdmin = user.roles.includes(RoleCode.SUPER_ADMIN) || user.roles.includes(RoleCode.CEO) || user.roles.includes(RoleCode.TECH_COMMITTEE_MANAGER);
+    const isAssignee = task.employeeId === user.employeeProfileId;
+    const project = task.projectId ? await this.prisma.project.findUnique({ where: { id: task.projectId }, select: { managerId: true } }) : null;
+    const isProjectSupervisor = project?.managerId === user.employeeProfileId;
+    if (!isAdmin && !isAssignee && !(isProjectSupervisor && task.status === 'SUBMITTED')) {
+      throw new ForbiddenException('شما اجازه آپلود فایل برای این تسک را ندارید');
+    }
     // versioning
     const last = await this.prisma.taskAttachment.findFirst({ where: { taskAssignmentId: id }, orderBy: { version: 'desc' } });
     const version = (last?.version || 0) + 1;
@@ -123,6 +130,25 @@ export class TasksController {
   async getAttachments(@Param('id') id: string, @GetUser() user: JwtPayload) {
     await this.service.findOne(id, user);
     return this.prisma.taskAttachment.findMany({ where: { taskAssignmentId: id }, orderBy: { version: 'desc' } });
+  }
+
+  @Delete('attachments/:attachmentId')
+  async deleteAttachment(@Param('attachmentId') attachmentId: string, @GetUser() user: JwtPayload) {
+    const attachment = await this.prisma.taskAttachment.findUnique({
+      where: { id: attachmentId },
+      include: { taskAssignment: { select: { id: true, status: true, employeeId: true, projectId: true } } },
+    });
+    if (!attachment) throw new NotFoundException('فایل یافت نشد');
+    const task = attachment.taskAssignment;
+    const fullAccess = user.roles.includes(RoleCode.SUPER_ADMIN) || user.roles.includes(RoleCode.CEO) || user.roles.includes(RoleCode.TECH_COMMITTEE_MANAGER);
+    const project = task.projectId ? await this.prisma.project.findUnique({ where: { id: task.projectId }, select: { managerId: true } }) : null;
+    const isProjectSupervisor = project?.managerId === user.employeeProfileId;
+    const canDelete = task.status === 'APPROVED'
+      ? user.roles.includes(RoleCode.TECH_COMMITTEE_MANAGER) || user.roles.includes(RoleCode.SUPER_ADMIN)
+      : fullAccess || attachment.uploadedById === user.sub || (isProjectSupervisor && task.status === 'SUBMITTED');
+    if (!canDelete) throw new ForbiddenException('شما اجازه حذف این فایل را ندارید');
+    await this.prisma.taskAttachment.delete({ where: { id: attachmentId } });
+    return { success: true };
   }
 
   @Post(':id/dependencies')

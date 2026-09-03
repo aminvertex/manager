@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Play, Send, RefreshCcw, CheckCircle2, XCircle, FileUp, MessageSquare, AlertTriangle } from 'lucide-react';
+import { Loader2, Play, Send, RefreshCcw, CheckCircle2, XCircle, FileUp, MessageSquare, AlertTriangle, Trash2 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { Badge } from '@/components/ui/badge';
@@ -48,7 +48,7 @@ interface TaskDetail {
   project: { id: string; name: string; managerId?: string | null } | null;
   statusHistory: Array<{ fromStatus: string | null; toStatus: string; comment: string | null; createdAt: string; changedBy?: { id: string; firstName: string; lastName: string } }>;
   revisions: Array<{ id: string; revisionNumber: number; reason: string | null; comment: string | null; status: string; requestedAt: string; dueDate: string | null }>;
-  attachments: Array<{ id: string; originalName: string; version: number; size: number | null; createdAt: string }>;
+  attachments: Array<{ id: string; originalName: string; version: number; size: number | null; createdAt: string; uploadedById: string; uploadedBy?: { employeeProfile?: { firstName: string; lastName: string } } }>;
   comments: Array<{ id: string; message: string; createdAt: string; author?: { id: string; mobile: string; employeeProfile?: { id: string; firstName: string; lastName: string; avatarUrl?: string } } }>;
   evaluation: { scores: Record<string, number>; score100: number | null; result: string; comment: string | null } | null;
   qualityControl: { qualityScore: number | null; result: string; comment: string | null } | null;
@@ -103,7 +103,7 @@ export default function TaskDetailPage() {
   });
 
   const evaluate = useMutation({
-    mutationFn: () => api.post('/evaluations', { taskAssignmentId: id, scores, result: evalResult, comment: evalComment }),
+    mutationFn: () => api.post('/evaluations', { taskAssignmentId: id, scores, result: 'APPROVED', comment: evalComment }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['task', id] }); qc.invalidateQueries({ queryKey: ['my-tasks'] }); setShowEvaluate(false); toast({ title: 'ارزیابی ثبت شد' }); },
     onError: (e) => toast({ title: 'خطا', description: (e as ApiError).message, variant: 'destructive' }),
   });
@@ -117,6 +117,12 @@ export default function TaskDetailPage() {
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['task', id] }); setFile(null); toast({ title: 'فایل آپلود شد' }); },
     onError: (e) => toast({ title: 'خطا', description: (e as Error).message, variant: 'destructive' }),
+  });
+
+  const deleteAttachment = useMutation({
+    mutationFn: (attachmentId: string) => api.delete(`/tasks/attachments/${attachmentId}`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['task', id] }); toast({ title: 'فایل حذف شد' }); },
+    onError: (e) => toast({ title: 'خطا', description: (e as ApiError).message, variant: 'destructive' }),
   });
 
   const addComment = useMutation({
@@ -190,6 +196,12 @@ export default function TaskDetailPage() {
       (user.roles.includes(RoleCode.SUPERVISOR) && t.employee.supervisorId === user.employeeProfile?.id));
   const taskLocked = ['NOT_STARTED', 'ASSIGNED'].includes(t.status);
   const canEditProgress = !taskLocked && t.employee?.id === user?.employeeProfile?.id;
+  const canDeleteAttachment = (a: TaskDetail['attachments'][number]) => {
+    const fullAccess = user?.roles.some((role) => [RoleCode.SUPER_ADMIN, RoleCode.CEO, RoleCode.TECH_COMMITTEE_MANAGER].includes(role as RoleCode));
+    if (t.status === 'APPROVED') return user?.roles.includes(RoleCode.SUPER_ADMIN) || user?.roles.includes(RoleCode.TECH_COMMITTEE_MANAGER);
+    return fullAccess || a.uploadedById === user?.id ||
+      (t.project?.managerId === user?.employeeProfile?.id && t.status === 'SUBMITTED');
+  };
 
   return (
     <div className="space-y-6">
@@ -205,7 +217,7 @@ export default function TaskDetailPage() {
         </div>
         <div className="flex flex-wrap gap-2">
           {canStart && <Button onClick={() => setStatus.mutate('IN_PROGRESS')} disabled={setStatus.isPending}><Play className="h-4 w-4 ml-2" />شروع تسک</Button>}
-          {canSubmit && <Button onClick={() => setShowStatusChange(true)}><Send className="h-4 w-4 ml-2" />تحویل تسک</Button>}
+          {canSubmit && <Button onClick={() => submitStatusChange({ status: 'SUBMITTED', progress: t.progress, comment: '', file: null })}><Send className="h-4 w-4 ml-2" />تحویل تسک</Button>}
           {canReview && <Button variant="outline" onClick={() => setShowRevision(true)}><RefreshCcw className="h-4 w-4 ml-2" />درخواست اصلاح</Button>}
           {canReview && <Button onClick={() => setShowEvaluate(true)}><CheckCircle2 className="h-4 w-4 ml-2" />ارزیابی</Button>}
           {!taskLocked && t.status !== 'APPROVED' && t.status !== 'CANCELLED' && <Button variant="ghost" onClick={() => setShowSubmit(true)}><FileUp className="h-4 w-4 ml-2" />آپلود خروجی</Button>}
@@ -298,8 +310,16 @@ export default function TaskDetailPage() {
                           <div>
                             <p className="text-sm font-medium">نسخه {toPersianDigits(a.version)} — {a.originalName}</p>
                             <p className="text-xs text-muted-foreground">{toJalaliDateTime(a.createdAt)}</p>
+                            <p className="text-xs text-muted-foreground">آپلودکننده: {a.uploadedBy?.employeeProfile ? `${a.uploadedBy.employeeProfile.firstName} ${a.uploadedBy.employeeProfile.lastName}` : 'کاربر'}</p>
                           </div>
-                          <Badge variant="secondary">v{toPersianDigits(a.version)}</Badge>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="secondary">v{toPersianDigits(a.version)}</Badge>
+                            {canDeleteAttachment(a) && (
+                              <Button size="icon" variant="ghost" className="text-destructive" onClick={() => deleteAttachment.mutate(a.id)} disabled={deleteAttachment.isPending} title="حذف فایل">
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -393,7 +413,7 @@ export default function TaskDetailPage() {
                   <div key={r.id} className="rounded-lg border p-3">
                     <div className="flex justify-between">
                       <span className="text-sm font-medium">اصلاح {toPersianDigits(r.revisionNumber)}</span>
-                      <Badge variant="outline">{r.status}</Badge>
+                      <Badge variant="outline">{r.status === 'PENDING' ? 'در انتظار مشاهده' : r.status === 'VIEWED' ? 'مشاهده شده' : r.status}</Badge>
                     </div>
                     {r.reason && <p className="text-sm mt-1">{r.reason}</p>}
                     <p className="text-xs text-muted-foreground mt-1">{toJalaliDateTime(r.requestedAt)}</p>
@@ -438,7 +458,7 @@ export default function TaskDetailPage() {
             </div>
             <div className="space-y-2">
               <Label>مهلت اصلاح</Label>
-              <JalaliDatePicker value={revisionDue} onChange={setRevisionDue} />
+              <JalaliDatePicker value={revisionDue} onChange={setRevisionDue} disablePast />
             </div>
             <Button className="w-full" disabled={!revisionReason.trim() || requestRevision.isPending} onClick={() => requestRevision.mutate()}>
               ثبت درخواست اصلاح
@@ -471,7 +491,7 @@ export default function TaskDetailPage() {
                 </div>
               </div>
             ))}
-            <div className="space-y-2 pt-2">
+            <div className="hidden">
               <Label>نتیجه</Label>
               <Select value={evalResult} onValueChange={setEvalResult}>
                 <option value="APPROVED">تأیید</option>
