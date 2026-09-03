@@ -349,6 +349,12 @@ if (user.roles.includes('SUPERVISOR') && !this.dataScope.isAdmin(user) && !isPer
     updateData.isLateDelivery = delay.isLateDelivery;
 
     const updated = await this.prisma.taskAssignment.update({ where: { id: task.id }, data: updateData });
+    if (from === 'NEED_REVISION' && ['NOT_STARTED', 'IN_PROGRESS'].includes(to)) {
+      await this.prisma.taskRevision.updateMany({
+        where: { taskAssignmentId: task.id, status: 'PENDING' },
+        data: { status: 'VIEWED' },
+      });
+    }
     await this.prisma.taskStatusHistory.create({ data: { taskAssignmentId: task.id, fromStatus: from, toStatus: to, changedById: user.employeeProfileId, comment: dto.comment } });
 
     if (dto.comment) {

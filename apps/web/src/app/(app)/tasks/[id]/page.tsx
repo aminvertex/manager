@@ -110,12 +110,7 @@ export default function TaskDetailPage() {
       if (!file) throw new Error('فایلی انتخاب نشده');
       const fd = new FormData();
       fd.append('file', file);
-      const token = localStorage.getItem('accessToken');
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1'}/tasks/${id}/attachment`, {
-        method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
-      });
-      if (!res.ok) throw new Error('خطا در آپلود فایل');
-      return res.json();
+      return api.upload(`/tasks/${id}/attachment`, fd);
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['task', id] }); setFile(null); toast({ title: 'فایل آپلود شد' }); },
     onError: (e) => toast({ title: 'خطا', description: (e as Error).message, variant: 'destructive' }),
@@ -173,7 +168,8 @@ export default function TaskDetailPage() {
   const canReview = !!user && !!t.project && ['SUBMITTED'].includes(t.status) &&
     (t.project.managerId === user.employeeProfile?.id ||
       (user.roles.includes(RoleCode.SUPERVISOR) && t.employee.supervisorId === user.employeeProfile?.id));
-  const canEditProgress = t.employee?.id === user?.employeeProfile?.id;
+  const taskLocked = ['NOT_STARTED', 'ASSIGNED'].includes(t.status);
+  const canEditProgress = !taskLocked && t.employee?.id === user?.employeeProfile?.id;
 
   return (
     <div className="space-y-6">
@@ -188,10 +184,11 @@ export default function TaskDetailPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {(canStart || canSubmit || canReview) && <Button onClick={() => setShowStatusChange(true)}><Play className="h-4 w-4 ml-2" />تغییر وضعیت</Button>}
+          {canStart && <Button onClick={() => setShowStatusChange(true)}><Play className="h-4 w-4 ml-2" />شروع تسک</Button>}
+          {canSubmit && <Button onClick={() => setShowStatusChange(true)}><Send className="h-4 w-4 ml-2" />تحویل تسک</Button>}
           {canReview && <Button variant="outline" onClick={() => setShowRevision(true)}><RefreshCcw className="h-4 w-4 ml-2" />درخواست اصلاح</Button>}
           {canReview && <Button onClick={() => setShowEvaluate(true)}><CheckCircle2 className="h-4 w-4 ml-2" />ارزیابی</Button>}
-          {t.status !== 'APPROVED' && t.status !== 'CANCELLED' && <Button variant="ghost" onClick={() => setShowSubmit(true)}><FileUp className="h-4 w-4 ml-2" />آپلود خروجی</Button>}
+          {!taskLocked && t.status !== 'APPROVED' && t.status !== 'CANCELLED' && <Button variant="ghost" onClick={() => setShowSubmit(true)}><FileUp className="h-4 w-4 ml-2" />آپلود خروجی</Button>}
         </div>
 
         <StatusChangeModal
@@ -205,6 +202,7 @@ export default function TaskDetailPage() {
         />
       </div>
 
+      {taskLocked && <Card className="border-warning/30 bg-warning/10"><CardContent className="p-4 text-sm text-warning-foreground">تا زمانی که تسک شروع نشده است، آپلود فایل، ثبت پیشرفت و ارسال نظر غیرفعال هستند.</CardContent></Card>}
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-4">
           <Tabs defaultValue="info">
@@ -259,7 +257,7 @@ export default function TaskDetailPage() {
             <TabsContent value="output">
               <Card>
                 <CardContent className="p-6 space-y-4">
-                  <Button onClick={() => setShowSubmit(true)}><FileUp className="h-4 w-4 ml-2" />آپلود نسخه جدید</Button>
+                  <Button disabled={taskLocked} onClick={() => setShowSubmit(true)}><FileUp className="h-4 w-4 ml-2" />آپلود نسخه جدید</Button>
                   {t.attachments.length === 0 ? (
                     <p className="text-sm text-muted-foreground">فایلی آپلود نشده است</p>
                   ) : (
@@ -308,8 +306,8 @@ export default function TaskDetailPage() {
               <Card>
                 <CardContent className="p-6 space-y-4">
                   <div className="flex gap-2">
-                    <Textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="نظر خود را بنویسید..." className="min-h-[60px]" />
-                    <Button onClick={() => addComment.mutate()} disabled={!comment.trim()}><MessageSquare className="h-4 w-4" /></Button>
+                    <Textarea disabled={taskLocked} value={comment} onChange={(e) => setComment(e.target.value)} placeholder="نظر خود را بنویسید..." className="min-h-[60px]" />
+                    <Button onClick={() => addComment.mutate()} disabled={taskLocked || !comment.trim()}><MessageSquare className="h-4 w-4" /></Button>
                   </div>
                   <div className="space-y-3">
                     {t.comments.length === 0 && <p className="text-sm text-muted-foreground">نظری ثبت نشده است</p>}
