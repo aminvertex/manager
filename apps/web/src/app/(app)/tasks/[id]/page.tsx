@@ -128,8 +128,12 @@ export default function TaskDetailPage() {
   if (isLoading) return <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
   if (error || !t) return <Card className="p-8 text-center text-destructive">تسک یافت نشد</Card>;
 
-  const canStart = ['ASSIGNED', 'NOT_STARTED'].includes(t.status);
-  const canSubmit = ['IN_PROGRESS', 'NEED_REVISION'].includes(t.status);
+  const isAssignee = t.employee?.id === user?.employeeProfile?.id;
+  const hasFullStatusAccess = user?.roles.includes(RoleCode.SUPER_ADMIN) ||
+    user?.roles.includes(RoleCode.CEO) ||
+    user?.roles.includes(RoleCode.TECH_COMMITTEE_MANAGER);
+  const canStart = hasFullStatusAccess || (isAssignee && ['ASSIGNED', 'NOT_STARTED', 'NEED_REVISION'].includes(t.status));
+  const canSubmit = hasFullStatusAccess || (isAssignee && t.status === 'IN_PROGRESS');
   const canReview = !!user && !!t.project && ['SUBMITTED'].includes(t.status) &&
     (t.project.managerId === user.employeeProfile?.id ||
       (user.roles.includes(RoleCode.SUPERVISOR) && t.employee.supervisorId === user.employeeProfile?.id));

@@ -35,7 +35,11 @@ export class TasksService {
   }
 
   private async ensureCanAccess(task: any, user: JwtPayload) {
-    if (this.dataScope.isAdmin(user) || user.roles.includes('CEO')) return;
+    if (
+      this.dataScope.isAdmin(user) ||
+      user.roles.includes('CEO') ||
+      user.roles.includes('TECH_COMMITTEE_MANAGER')
+    ) return;
     if (task.projectId) {
       const project = await this.prisma.project.findUnique({
         where: { id: task.projectId },
@@ -51,6 +55,7 @@ export class TasksService {
       if (task.employeeId !== user.employeeProfileId) throw new ForbiddenException('دسترسی غیرمجاز به تسک');
     }
     if (user.roles.includes('SUPERVISOR')) {
+      if (task.employeeId === user.employeeProfileId) return;
       const emp = await this.prisma.employeeProfile.findUnique({ where: { id: task.employeeId } });
       if (emp?.supervisorId !== user.employeeProfileId && task.assignedById !== user.employeeProfileId) {
         // also allow if supervisor of that employee
@@ -269,6 +274,14 @@ if (user.roles.includes('SUPERVISOR') && !this.dataScope.isAdmin(user) && !isPer
     // Kanban workflow permission rules
     const from = task.status;
     const to = dto.status;
+    const hasFullStatusAccess =
+      this.dataScope.isAdmin(user) ||
+      user.roles.includes(RoleCode.CEO) ||
+      user.roles.includes(RoleCode.TECH_COMMITTEE_MANAGER);
+
+    if (hasFullStatusAccess) {
+      return this.finalizeStatusChange(task, dto, user, from, to);
+    }
 
     if (['APPROVED', 'REJECTED', 'CANCELLED'].includes(from)) {
       throw new ForbiddenException('تسک در وضعیت نهایی است و قابل تغییر نیست');

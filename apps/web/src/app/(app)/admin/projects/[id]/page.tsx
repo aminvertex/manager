@@ -97,7 +97,9 @@ export default function ProjectDetailPage() {
   const visibleKanbanTasks = isEmployeeRole
     ? kanbanTasks.filter((t) => t.employee?.id === user?.employeeProfile?.id)
     : kanbanTasks;
-  const taskById = (statusKey: string) => visibleKanbanTasks.filter((t) => t.status === statusKey);
+  const taskById = (statusKey: string) => visibleKanbanTasks.filter((t) =>
+    statusKey === 'NOT_STARTED' ? ['NOT_STARTED', 'ASSIGNED'].includes(t.status) : t.status === statusKey,
+  );
   const now = new Date();
   const isDelayed = (t: any) => t.isDelayed || (t.deadline && !['APPROVED','CANCELLED'].includes(t.status) && new Date(t.deadline) < now);
 
@@ -189,6 +191,7 @@ export default function ProjectDetailPage() {
   const canMoveTask = (task: any, target: string) => {
     const isAssignee = task.employee?.id === user?.employeeProfile?.id;
     const isProjectSupervisor = report?.data?.project?.managerId === user?.employeeProfile?.id;
+    if (isAdmin) return target !== task.status;
     if (task.status === 'NOT_STARTED' && target === 'IN_PROGRESS') return isAssignee;
     if (task.status === 'IN_PROGRESS' && target === 'SUBMITTED') return isAssignee;
     if (task.status === 'NEED_REVISION' && ['NOT_STARTED', 'IN_PROGRESS'].includes(target)) return isAssignee;
