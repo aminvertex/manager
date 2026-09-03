@@ -59,7 +59,10 @@ export class EmployeesService {
     if (scope?.employeeId) {
       where.id = scope.employeeId;
     } else if (scope?.supervisorId) {
-      where.supervisorId = scope.supervisorId;
+      where.OR = [
+        { supervisorId: scope.supervisorId },
+        { projectMembers: { some: { project: { managerId: scope.supervisorId } } } },
+      ];
     }
 
     if (query.search) {

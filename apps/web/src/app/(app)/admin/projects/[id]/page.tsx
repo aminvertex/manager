@@ -15,12 +15,11 @@ import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Loader2, Users, ListTodo, CheckCircle2, Clock, AlertTriangle, TrendingUp, Plus, ArrowRight, BarChart3, Download, Columns3, FolderKanban, Send, Mic, Paperclip, Pin, MessageSquare, ChevronRight } from 'lucide-react';
+import { Loader2, Users, ListTodo, CheckCircle2, Clock, AlertTriangle, TrendingUp, Plus, ArrowRight, BarChart3, Download, Columns3, FolderKanban, Send, Mic, Paperclip, Pin, MessageSquare, ChevronRight, MoreVertical } from 'lucide-react';
 import { toJalaliDate, toJalaliDateTime, toPersianDigits } from '@/lib/date';
 import { JalaliDatePicker } from '@/components/ui/jalali-date-picker';
 import { downloadFile, resolveAvatarUrl } from '@/lib/utils';
 import { RoleCode } from '@amatis/types';
-import { StatusChangeModal, StatusChangePayload } from '@/components/tasks/status-change-modal';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { TASK_STATUS_LABELS } from '@/lib/labels';
 import { toast } from '@/hooks/use-toast';
@@ -31,7 +30,7 @@ const chatColors = { grid: 'hsl(var(--border))', axis: 'hsl(var(--muted-foregrou
 
 interface MemberReport { id: string; firstName: string; lastName: string; employeeCode: string; tasks: number; completed: number; inProgress: number; delayed: number; pending: number; kpi: number | null }
 interface ProjectReport { project: any; totalTasks: number; completedTasks: number; inProgressTasks: number; delayedTasks: number; progress: number; members: MemberReport[] }
-interface ChatMsg { id: string; content: string; createdAt: string; senderId: string; type?: string; pinned?: boolean; editedAt?: string; sender?: { id: string; mobile: string; employeeProfile?: { id: string; firstName: string; lastName: string; avatarUrl?: string } } }
+interface ChatMsg { id: string; content: string; createdAt: string; senderId: string; type?: string; pinned?: boolean; editedAt?: string; readAt?: string | null; sender?: { id: string; mobile: string; employeeProfile?: { id: string; firstName: string; lastName: string; avatarUrl?: string } } }
 
 export default function ProjectDetailPage() {
   const params = useParams();
@@ -45,8 +44,10 @@ export default function ProjectDetailPage() {
   const [showMember, setShowMember] = useState(false);
   const [memberId, setMemberId] = useState('');
   const [selectedTask, setSelectedTask] = useState<any>(null);
+  const [editingChatId, setEditingChatId] = useState<string | null>(null);
+  const [editingChatText, setEditingChatText] = useState('');
+  const [chatMenuId, setChatMenuId] = useState<string | null>(null);
   const [kanbanEmployeeFilter, setKanbanEmployeeFilter] = useState('');
-  const [showStatusChange, setShowStatusChange] = useState(false);
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [taskForm, setTaskForm] = useState({ taskTemplateId: '', employeeId: '', projectId: id, deadline: '', priority: 'MEDIUM' });
   const [chatMsg, setChatMsg] = useState('');
@@ -138,18 +139,25 @@ export default function ProjectDetailPage() {
     mutationFn: ({ msgId, pinned }: { msgId: string; pinned: boolean }) => api.post(`/chat/messages/${msgId}/pin`, { pinned }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['project-chat-msgs', chatRoomId] }),
   });
+  const editChatMsg = useMutation({
+    mutationFn: ({ id: msgId, content }: { id: string; content: string }) => api.patch(`/chat/messages/${id}`, { content }),
+    onSuccess: () => { setEditingChatId(null); qc.invalidateQueries({ queryKey: ['project-chat-msgs', chatRoomId] }); },
+  });
+  const deleteChatMsg = useMutation({
+    mutationFn: (msgId: string) => api.delete(`/chat/messages/${msgId}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['project-chat-msgs', chatRoomId] }),
+  });
 
   const uploadChatFile = async (file: File) => {
     if (!chatRoomId) return;
     if (file.size > 50 * 1024 * 1024) { alert('حجم فایل حداکثر ۵۰ مگابایت'); return; }
     setUploadingFile(true);
     const fd = new FormData(); fd.append('file', file);
-    const token = localStorage.getItem('accessToken');
     try {
-      await fetch(`http://localhost:4041/api/v1/chat/rooms/${chatRoomId}/upload`, {
-        method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
-      });
+      await api.upload(`/chat/rooms/${chatRoomId}/upload`, fd);
       qc.invalidateQueries({ queryKey: ['project-chat-msgs', chatRoomId] });
+    } catch (e) {
+      toast({ title: 'خطا در آپلود', description: (e as ApiError).message, variant: 'destructive' });
     } finally { setUploadingFile(false); }
   };
 
@@ -165,8 +173,9 @@ export default function ProjectDetailPage() {
         const blob = new Blob(chunksRef.current, { type: mimeType });
         const ext = mimeType.includes('webm') ? 'webm' : 'mp4';
         const fd = new FormData(); fd.append('file', blob, `voice-${Date.now()}.${ext}`);
-        const token = localStorage.getItem('accessToken');
-        if (chatRoomId) fetch(`http://localhost:4041/api/v1/chat/rooms/${chatRoomId}/upload`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd }).then(() => qc.invalidateQueries({ queryKey: ['project-chat-msgs', chatRoomId] }));
+        if (chatRoomId) api.upload(`/chat/rooms/${chatRoomId}/upload`, fd)
+          .then(() => qc.invalidateQueries({ queryKey: ['project-chat-msgs', chatRoomId] }))
+          .catch((e) => toast({ title: 'خطا در ارسال ویس', description: (e as ApiError).message, variant: 'destructive' }));
         if (recTimerRef.current) clearInterval(recTimerRef.current);
         setIsRecording(false); setRecTime(0);
       };
@@ -185,10 +194,6 @@ export default function ProjectDetailPage() {
   const removeMember = useMutation({
     mutationFn: (empId: string) => api.delete(`/projects/${id}/members/${empId}`),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['project-report', id] }); qc.invalidateQueries({ queryKey: ['project-tasks', id] }); },
-  });
-  const moveTask = useMutation({
-    mutationFn: ({ taskId, status }: { taskId: string; status: string }) => api.patch(`/tasks/${taskId}/status`, { status }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['project-tasks', id] }); qc.invalidateQueries({ queryKey: ['project-report', id] }); },
   });
   const canMoveTask = (task: any, target: string) => {
     const isAssignee = task.employee?.id === user?.employeeProfile?.id;
@@ -211,22 +216,6 @@ export default function ProjectDetailPage() {
     APPROVED: ['NOT_STARTED', 'IN_PROGRESS', 'SUBMITTED', 'UNDER_REVIEW', 'NEED_REVISION'],
   };
 
-  const openStatusChange = (task: any) => { setSelectedTask(task); setShowStatusChange(true); };
-  const submitStatusChange = async ({ status, progress, comment, file }: StatusChangePayload) => {
-    if (!selectedTask) return;
-    await api.patch(`/tasks/${selectedTask.id}/status`, { status, comment: comment || undefined });
-    if (progress !== (selectedTask.progress || 0)) await api.patch(`/tasks/${selectedTask.id}/progress`, { progress });
-    if (file) {
-      if (file.size > 20 * 1024 * 1024) throw new Error('حجم فایل حداکثر ۲۰ مگابایت است');
-      const fd = new FormData(); fd.append('file', file);
-      const token = localStorage.getItem('accessToken');
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4041/api/v1'}/tasks/${selectedTask.id}/attachment`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd });
-      if (!response.ok) throw new Error('خطا در آپلود فایل');
-    }
-    setShowStatusChange(false); setSelectedTask(null);
-    qc.invalidateQueries({ queryKey: ['project-tasks', id] }); qc.invalidateQueries({ queryKey: ['project-report', id] });
-    toast({ title: 'تغییر وضعیت ثبت شد' });
-  };
 
   if (isLoading) return (
     <div className="space-y-6 p-6"><Skeleton className="h-10 w-64" /><div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-4">{Array.from({length:6}).map((_,i) => <Skeleton key={i} className="h-24 rounded-xl" />)}</div><div className="grid gap-4 lg:grid-cols-2">{Array.from({length:2}).map((_,i) => <Skeleton key={i} className="h-72 rounded-xl" />)}</div></div>
@@ -380,7 +369,7 @@ export default function ProjectDetailPage() {
                           {t.deadline && <p className="text-[10px] text-muted-foreground mt-0.5">مهلت: {toJalaliDate(t.deadline)}</p>}
                         </button>
                         {isDelayed(t) && <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-destructive/15 text-destructive mt-1">تأخیر</span>}
-                        {KANBAN_FLOW[t.status]?.filter((target) => canMoveTask(t, target)).length > 0 && <div className="flex gap-1 mt-2">{KANBAN_FLOW[t.status].filter((target) => canMoveTask(t, target)).map(target => <button key={target} type="button" onClick={() => target === 'APPROVED' && !isAdmin ? router.push(`/tasks/${t.id}?action=evaluate`) : openStatusChange(t)} className="flex-1 rounded bg-muted text-[10px] py-1 hover:bg-primary/10 hover:text-primary">{target === 'APPROVED' && !isAdmin ? 'ارزیابی و تایید' : TASK_STATUS_LABELS[target]||target}</button>)}</div>}
+                        {KANBAN_FLOW[t.status]?.filter((target) => canMoveTask(t, target)).length > 0 && <div className="flex gap-1 mt-2">{KANBAN_FLOW[t.status].filter((target) => canMoveTask(t, target)).map(target => <button key={target} type="button" onClick={() => setSelectedTask(t)} className="flex-1 rounded bg-muted text-[10px] py-1 hover:bg-primary/10 hover:text-primary">{TASK_STATUS_LABELS[target] || target}</button>)}</div>}
                       </div>
                     ))}{colTasks.length === 0 && <p className="text-center text-[11px] text-muted-foreground py-3">—</p>}</div>
                   </div>;
@@ -400,15 +389,24 @@ export default function ProjectDetailPage() {
           <div className="flex flex-col h-[400px]">
             {pinnedMsgs.length > 0 && <div className="px-4 pt-2 pb-1 border-b bg-warning/5">{pinnedMsgs.map(p => <div key={p.id} className="flex items-center gap-2 text-xs py-0.5"><Pin className="h-3 w-3 text-warning shrink-0" /><span className="text-muted-foreground truncate">{p.sender?.employeeProfile?.firstName || 'کاربر'}: {p.content}</span></div>)}</div>}
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
-              {chatMsgs.filter(m => m.type !== 'SYSTEM').map(m => {
+              {chatMsgs.filter(m => m.type !== 'SYSTEM').map((m, index, visibleMessages) => {
                 const isMine = m.senderId === user?.id;
+                const firstUnread = !isMine && !m.readAt && (index === 0 || visibleMessages[index - 1]?.readAt);
                 return <div key={m.id} className={`flex ${isMine ? 'justify-start' : 'justify-end'}`}>
+                  {firstUnread && <div className="absolute left-1/2 -translate-x-1/2 -mt-5 rounded-full bg-primary/10 px-3 py-1 text-[10px] text-primary">پیام‌های جدید</div>}
                   <div className={`max-w-[75%] rounded-lg px-3 py-2 ${isMine ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>
                     {!isMine && m.sender?.employeeProfile && <p className="text-[10px] opacity-70 mb-1">{m.sender.employeeProfile.firstName} {m.sender.employeeProfile.lastName}</p>}
-                    {m.type === 'FILE' ? <a href={JSON.parse(m.content).url} target="_blank" rel="noreferrer" className="underline text-sm break-words">{JSON.parse(m.content).fileName}</a> : <p className="text-sm break-words">{m.content}</p>}
+                    {editingChatId === m.id ? <div className="flex gap-1"><Input value={editingChatText} onChange={(e) => setEditingChatText(e.target.value)} className="h-7 text-xs" /><Button size="sm" onClick={() => editChatMsg.mutate({ id: m.id, content: editingChatText })}>ذخیره</Button></div> : m.type === 'FILE' ? <a href={JSON.parse(m.content).url} target="_blank" rel="noreferrer" className="underline text-sm break-words">{JSON.parse(m.content).fileName}</a> : <p className="text-sm break-words">{m.content}</p>}
                     <div className={`flex items-center gap-2 mt-1 ${isMine ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
                       <span className="text-[10px]">{toJalaliDateTime(m.createdAt)}</span>
                       {m.pinned && <Pin className="h-3 w-3" />}
+                      <div className="relative mr-auto">
+                        <button type="button" aria-label="گزینه‌های پیام" onClick={() => setChatMenuId(chatMenuId === m.id ? null : m.id)}><MoreVertical className="h-3.5 w-3.5" /></button>
+                        {chatMenuId === m.id && <div className="absolute bottom-5 left-0 z-20 min-w-28 rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg">
+                          <button type="button" className="block w-full rounded px-2 py-1 text-right text-xs hover:bg-muted" onClick={() => { pinMsg.mutate({ msgId: m.id, pinned: !m.pinned }); setChatMenuId(null); }}>{m.pinned ? 'برداشتن سنجاق' : 'سنجاق'}</button>
+                          {isMine && m.type !== 'FILE' && <><button type="button" className="block w-full rounded px-2 py-1 text-right text-xs hover:bg-muted" onClick={() => { setEditingChatId(m.id); setEditingChatText(m.content); setChatMenuId(null); }}>ویرایش</button><button type="button" className="block w-full rounded px-2 py-1 text-right text-xs hover:bg-muted" onClick={() => { deleteChatMsg.mutate(m.id); setChatMenuId(null); }}>حذف</button></>}
+                        </div>}
+                      </div>
                     </div>
                   </div>
                 </div>;
@@ -464,29 +462,12 @@ export default function ProjectDetailPage() {
           </div>
         </DialogContent>
       </Dialog>
-      <Dialog open={!!selectedTask && !showStatusChange} onOpenChange={(o) => !o && setSelectedTask(null)}>
-        <DialogContent><DialogHeader><DialogTitle className="text-lg">{selectedTask?.taskTemplate?.name}</DialogTitle></DialogHeader>
-          {selectedTask && <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div className="rounded-lg bg-muted/50 p-3"><span className="text-xs text-muted-foreground">وضعیت</span><p className="font-medium mt-0.5">{TASK_STATUS_LABELS[selectedTask.status] || selectedTask.status}</p></div>
-              <div className="rounded-lg bg-muted/50 p-3"><span className="text-xs text-muted-foreground">کارشناس</span><p className="font-medium mt-0.5">{selectedTask.employee?.firstName} {selectedTask.employee?.lastName}</p></div>
-              <div className="rounded-lg bg-muted/50 p-3"><span className="text-xs text-muted-foreground">اولویت</span><p className="font-medium mt-0.5">{selectedTask.priority || '—'}</p></div>
-              <div className="rounded-lg bg-muted/50 p-3"><span className="text-xs text-muted-foreground">مهلت</span><p className="font-medium mt-0.5">{toJalaliDate(selectedTask.deadline)}</p></div>
-            </div>
-            {selectedTask.notes && <div className="rounded-lg border p-3"><span className="text-xs text-muted-foreground">توضیحات</span><p className="text-sm mt-1">{selectedTask.notes}</p></div>}
-            <Button className="w-full" variant="outline" onClick={() => router.push(`/tasks/${selectedTask.id}`)}>جزئیات کامل</Button>
-          </div>}
+      <Dialog open={!!selectedTask} onOpenChange={(o) => !o && setSelectedTask(null)}>
+        <DialogContent className="max-w-6xl h-[92vh] p-0 overflow-hidden">
+          <DialogHeader className="sr-only"><DialogTitle>{selectedTask?.taskTemplate?.name || 'جزئیات تسک'}</DialogTitle></DialogHeader>
+          {selectedTask && <iframe title="جزئیات تسک" src={`/tasks/${selectedTask.id}`} className="h-full w-full border-0" />}
         </DialogContent>
       </Dialog>
-      {selectedTask && <StatusChangeModal
-        open={showStatusChange}
-        onOpenChange={(open) => { setShowStatusChange(open); if (!open) setSelectedTask(null); }}
-        currentStatus={selectedTask.status}
-        currentProgress={selectedTask.progress || 0}
-        transitions={KANBAN_FLOW[selectedTask.status]?.filter((target) => canMoveTask(selectedTask, target)) || []}
-        onSubmit={submitStatusChange}
-        isPending={moveTask.isPending}
-      />}
       <Dialog open={showMember} onOpenChange={setShowMember}>
         <DialogContent><DialogHeader><DialogTitle>افزودن عضو</DialogTitle></DialogHeader>
           <div className="space-y-4"><div><Label>کارمند</Label><Select value={memberId} onValueChange={setMemberId}><option value="">انتخاب...</option>{(employees?.data||[]).map((e:any) => <option key={e.id} value={e.id}>{e.firstName} {e.lastName}</option>)}</Select></div>

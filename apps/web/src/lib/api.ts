@@ -75,6 +75,21 @@ class ApiClient {
     return data;
   }
 
+  async upload<T>(endpoint: string, body: FormData): Promise<T> {
+    const token = this.getToken();
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    let response = await fetch(`${API_URL}${endpoint}`, { method: "POST", headers, body });
+    if (response.status === 401 && token && await this.tryRefresh()) {
+      const nextToken = this.getToken();
+      if (nextToken) headers["Authorization"] = `Bearer ${nextToken}`;
+      response = await fetch(`${API_URL}${endpoint}`, { method: "POST", headers, body });
+    }
+    const data = await response.json();
+    if (!response.ok) throw new ApiError(data.message || "آپلود انجام نشد", data.code, data.errors, response.status);
+    return data;
+  }
+
   private async tryRefresh(): Promise<boolean> {
     const refreshToken = this.getRefreshToken();
     if (!refreshToken) return false;
@@ -145,5 +160,3 @@ export class ApiError extends Error {
 }
 
 export const api = new ApiClient();
-
-

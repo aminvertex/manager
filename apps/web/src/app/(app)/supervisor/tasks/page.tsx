@@ -82,8 +82,8 @@ export default function SupervisorTasksPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">تسک‌های تیم</h1>
-        <p className="text-muted-foreground">مشاهده و تأیید تسک‌های اعضای تیم</p>
+        <h1 className="text-2xl font-bold">{employeeId ? `تسک‌های ${team?.data?.find((e) => e.id === employeeId)?.firstName || 'کارمند'}` : 'تسک‌های تیم'}</h1>
+        <p className="text-muted-foreground">{employeeId ? 'مشاهده جزئیات تسک‌های این عضو تیم' : 'مشاهده و تأیید تسک‌های اعضای تیم'}</p>
       </div>
 
       <div className="flex flex-wrap items-center gap-3">

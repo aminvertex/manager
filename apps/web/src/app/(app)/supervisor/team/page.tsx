@@ -10,6 +10,7 @@ import { getInitials } from '@/lib/utils';
 import { toPersianDigits } from '@/lib/date';
 import { toJalaliDate } from '@/lib/date';
 import Link from 'next/link';
+import { motion } from 'framer-motion';
 
 interface Employee {
   id: string; firstName: string; lastName: string; employeeCode: string;
@@ -25,13 +26,19 @@ export default function SupervisorTeamPage() {
     queryFn: () => api.get<{ success: boolean; data: Employee[]; meta: { total: number } }>('/employees?limit=50'),
   });
 
-  const { data: taskStats } = useQuery({
+  const { data: taskData } = useQuery({
     queryKey: ['supervisor-team-stats'],
-    queryFn: () => api.get<{ data: { total: number; completed: number; pending: number; delayed: number } }>('/tasks?limit=1&stats=true'),
+    queryFn: () => api.get<{ data: Array<{ employee: { id: string }; status: string; isDelayed: boolean }> }>('/tasks?limit=500'),
   });
 
   const team = teamData?.data || [];
-  const stats = taskStats?.data;
+  const allTasks = taskData?.data || [];
+  const stats = {
+    total: allTasks.length,
+    completed: allTasks.filter((t) => t.status === 'APPROVED').length,
+    inProgress: allTasks.filter((t) => t.status === 'IN_PROGRESS').length,
+    delayed: allTasks.filter((t) => t.isDelayed).length,
+  };
 
   return (
     <div className="space-y-6">
@@ -43,7 +50,7 @@ export default function SupervisorTeamPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Card><CardContent className="p-4 flex items-center gap-3"><Users className="h-8 w-8 text-primary" /><div><p className="text-sm text-muted-foreground">کل اعضا</p><p className="text-2xl font-bold">{toPersianDigits(team.length)}</p></div></CardContent></Card>
         <Card><CardContent className="p-4 flex items-center gap-3"><CheckCircle className="h-8 w-8 text-success" /><div><p className="text-sm text-muted-foreground">تسک‌های تکمیل</p><p className="text-2xl font-bold">{toPersianDigits(stats?.completed || 0)}</p></div></CardContent></Card>
-        <Card><CardContent className="p-4 flex items-center gap-3"><Clock className="h-8 w-8 text-warning" /><div><p className="text-sm text-muted-foreground">در حال انجام</p><p className="text-2xl font-bold">{toPersianDigits(stats?.pending || 0)}</p></div></CardContent></Card>
+        <Card><CardContent className="p-4 flex items-center gap-3"><Clock className="h-8 w-8 text-warning" /><div><p className="text-sm text-muted-foreground">در حال انجام</p><p className="text-2xl font-bold">{toPersianDigits(stats.inProgress)}</p></div></CardContent></Card>
         <Card><CardContent className="p-4 flex items-center gap-3"><AlertTriangle className="h-8 w-8 text-destructive" /><div><p className="text-sm text-muted-foreground">تأخیر</p><p className="text-2xl font-bold">{toPersianDigits(stats?.delayed || 0)}</p></div></CardContent></Card>
       </div>
 
@@ -51,9 +58,9 @@ export default function SupervisorTeamPage() {
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-32 rounded-xl" />)}</div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
-          {team.map((emp) => (
-            <Link key={emp.id} href={`/supervisor/tasks?employeeId=${emp.id}`}>
-              <Card className="hover:shadow-md transition-shadow cursor-pointer">
+          {team.map((emp, index) => (
+            <motion.div key={emp.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.04 }}>
+            <Card className="group hover:shadow-xl hover:-translate-y-1 transition-all duration-300 border-primary/10">
                 <CardHeader className="pb-3">
                   <div className="flex items-center gap-3">
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-medium">{getInitials(emp.firstName, emp.lastName)}</div>
@@ -68,9 +75,10 @@ export default function SupervisorTeamPage() {
                   <div className="flex justify-between"><span>کد پرسنلی</span><span>{toPersianDigits(emp.employeeCode)}</span></div>
                   {emp.primaryProject && <div className="flex justify-between"><span>پروژه اصلی</span><span>{emp.primaryProject.name}</span></div>}
                   <div className="flex justify-between"><span>وضعیت همکاری</span><span>{emp.collaborationStatus === 'ACTIVE' ? 'فعال' : emp.collaborationStatus === 'PROBATION' ? 'آزمایشی' : 'پایان یافته'}</span></div>
+                  <Link href={`/supervisor/tasks?employeeId=${emp.id}`} className="mt-3 inline-flex w-full items-center justify-center rounded-lg bg-primary/10 py-2 text-primary transition-colors hover:bg-primary hover:text-primary-foreground">جزئیات تسک‌های {emp.firstName}</Link>
                 </CardContent>
               </Card>
-            </Link>
+            </motion.div>
           ))}
         </div>
       )}
