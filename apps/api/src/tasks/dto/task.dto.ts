@@ -15,7 +15,7 @@ export enum TaskStatus {
 }
 
 export const STATUS_TRANSITIONS: Record<string, string[]> = {
-  ASSIGNED: ['NOT_STARTED'],
+  ASSIGNED: ['NOT_STARTED', 'IN_PROGRESS'],
   NOT_STARTED: ['IN_PROGRESS', 'CANCELLED'],
   IN_PROGRESS: ['SUBMITTED', 'CANCELLED'],
   DELAYED: ['IN_PROGRESS', 'CANCELLED'],

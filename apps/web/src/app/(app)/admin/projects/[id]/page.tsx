@@ -981,7 +981,7 @@ export default function ProjectDetailPage() {
             <iframe
               title="جزئیات تسک"
               src={`/tasks/${selectedTask.id}?embedded=1`}
-              className="h-full w-full border-0"
+              className="h-full w-[90%] border-0 p-8"
             />
           )}
         </DialogContent>
