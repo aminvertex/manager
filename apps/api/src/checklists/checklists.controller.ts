@@ -1,4 +1,6 @@
 import { Controller, Get, Post, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { RoleCode } from '@amatis/types';
+import { Roles } from '../common/decorators/roles.decorator';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -31,5 +33,16 @@ export class ChecklistsController {
   @Get('weekly/:employeeId')
   getWeekly(@Param('employeeId') employeeId: string, @GetUser() user: JwtPayload) {
     return this.service.getWeekly(employeeId, user);
+  }
+
+  @Get('overview')
+  @Roles(RoleCode.SUPER_ADMIN, RoleCode.CEO, RoleCode.TECH_COMMITTEE_MANAGER)
+  getOverview(
+    @Query('type') type: 'daily' | 'weekly',
+    @Query('from') from: string,
+    @Query('to') to: string,
+    @GetUser() user: JwtPayload,
+  ) {
+    return this.service.getAdminOverview(type === 'weekly' ? 'weekly' : 'daily', from, to, user);
   }
 }
