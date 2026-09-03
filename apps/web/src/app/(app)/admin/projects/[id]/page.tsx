@@ -38,8 +38,8 @@ export default function ProjectDetailPage() {
   const id = params.id as string;
   const qc = useQueryClient();
   const { user, hasRole } = useAuth();
-  const isAdmin = hasRole(RoleCode.SUPER_ADMIN) || hasRole(RoleCode.CEO);
-  const isEmployeeRole = hasRole(RoleCode.EMPLOYEE) || hasRole(RoleCode.EXPERT_L1) || hasRole(RoleCode.EXPERT_L2) || hasRole(RoleCode.EXPERT_L3) || hasRole(RoleCode.SALES_CONSULTANT) || hasRole(RoleCode.TECH_COMMITTEE_MEMBER) || hasRole(RoleCode.TECH_COMMITTEE_MANAGER);
+  const isAdmin = hasRole(RoleCode.SUPER_ADMIN) || hasRole(RoleCode.CEO) || hasRole(RoleCode.TECH_COMMITTEE_MANAGER);
+  const isEmployeeRole = hasRole(RoleCode.EMPLOYEE) || hasRole(RoleCode.EXPERT_L1) || hasRole(RoleCode.EXPERT_L2) || hasRole(RoleCode.EXPERT_L3) || hasRole(RoleCode.SALES_CONSULTANT) || hasRole(RoleCode.TECH_COMMITTEE_MEMBER);
 
   const [showMember, setShowMember] = useState(false);
   const [memberId, setMemberId] = useState('');
@@ -176,17 +176,26 @@ export default function ProjectDetailPage() {
 
   const addMember = useMutation({
     mutationFn: () => api.post(`/projects/${id}/members`, { employeeId: memberId }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['project-report', id] }); setShowMember(false); setMemberId(''); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['project-report', id] }); qc.invalidateQueries({ queryKey: ['project-tasks', id] }); setShowMember(false); setMemberId(''); },
   });
   const removeMember = useMutation({
     mutationFn: (empId: string) => api.delete(`/projects/${id}/members/${empId}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['project-report', id] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['project-report', id] }); qc.invalidateQueries({ queryKey: ['project-tasks', id] }); },
   });
   const moveTask = useMutation({
     mutationFn: ({ taskId, status }: { taskId: string; status: string }) => api.patch(`/tasks/${taskId}/status`, { status }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['project-tasks', id] }); qc.invalidateQueries({ queryKey: ['project-report', id] }); },
   });
-  const KANBAN_FLOW: Record<string, string[]> = { NOT_STARTED: ['IN_PROGRESS'], IN_PROGRESS: ['SUBMITTED', 'NEED_REVISION'], SUBMITTED: ['APPROVED', 'NEED_REVISION'], NEED_REVISION: ['IN_PROGRESS'], APPROVED: [] };
+  const canMoveTask = (task: any, target: string) => {
+    const isAssignee = task.employee?.id === user?.employeeProfile?.id;
+    const isProjectSupervisor = report?.data?.project?.managerId === user?.employeeProfile?.id;
+    if (task.status === 'NOT_STARTED' && target === 'IN_PROGRESS') return isAssignee;
+    if (task.status === 'IN_PROGRESS' && target === 'SUBMITTED') return isAssignee;
+    if (task.status === 'NEED_REVISION' && ['NOT_STARTED', 'IN_PROGRESS'].includes(target)) return isAssignee;
+    if (task.status === 'SUBMITTED' && ['APPROVED', 'NEED_REVISION'].includes(target)) return isProjectSupervisor;
+    return false;
+  };
+  const KANBAN_FLOW: Record<string, string[]> = { NOT_STARTED: ['IN_PROGRESS'], IN_PROGRESS: ['SUBMITTED'], SUBMITTED: ['APPROVED', 'NEED_REVISION'], NEED_REVISION: ['NOT_STARTED', 'IN_PROGRESS'], APPROVED: [] };
 
   if (isLoading) return (
     <div className="space-y-6 p-6"><Skeleton className="h-10 w-64" /><div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-4">{Array.from({length:6}).map((_,i) => <Skeleton key={i} className="h-24 rounded-xl" />)}</div><div className="grid gap-4 lg:grid-cols-2">{Array.from({length:2}).map((_,i) => <Skeleton key={i} className="h-72 rounded-xl" />)}</div></div>
@@ -249,7 +258,7 @@ export default function ProjectDetailPage() {
         </Card>)}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between"><CardTitle className="text-base flex items-center gap-2"><Users className="h-4 w-4" /> اعضا</CardTitle>
-            {isAdmin && <Button size="sm" variant="outline" onClick={() => setShowMember(true)}><Plus className="h-4 w-4 ml-1" /> افزودن</Button>}
+            {isAdmin && <Button size="sm" variant="outline" onClick={() => setShowMember(true)}><Plus className="h-4 w-4 ml-1" /> افزودن عضو</Button>}
           </CardHeader>
           <CardContent className="space-y-2">
             {d.members.length === 0 ? <p className="text-center text-muted-foreground py-8">عضوی ثبت نشده</p> : d.members.map(m => (
@@ -340,7 +349,7 @@ export default function ProjectDetailPage() {
                           {t.deadline && <p className="text-[10px] text-muted-foreground mt-0.5">مهلت: {toJalaliDate(t.deadline)}</p>}
                         </button>
                         {isDelayed(t) && <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-destructive/15 text-destructive mt-1">تأخیر</span>}
-                        {(KANBAN_FLOW[t.status]||[]).length > 0 && <div className="flex gap-1 mt-2">{(KANBAN_FLOW[t.status]||[]).map(target => <button key={target} type="button" onClick={() => moveTask.mutate({taskId:t.id,status:target})} className="flex-1 rounded bg-muted text-[10px] py-1 hover:bg-primary/10 hover:text-primary">{TASK_STATUS_LABELS[target]||target}</button>)}</div>}
+                        {KANBAN_FLOW[t.status]?.filter((target) => canMoveTask(t, target)).length > 0 && <div className="flex gap-1 mt-2">{KANBAN_FLOW[t.status].filter((target) => canMoveTask(t, target)).map(target => <button key={target} type="button" onClick={() => moveTask.mutate({taskId:t.id,status:target})} className="flex-1 rounded bg-muted text-[10px] py-1 hover:bg-primary/10 hover:text-primary">{TASK_STATUS_LABELS[target]||target}</button>)}</div>}
                       </div>
                     ))}{colTasks.length === 0 && <p className="text-center text-[11px] text-muted-foreground py-3">—</p>}</div>
                   </div>;

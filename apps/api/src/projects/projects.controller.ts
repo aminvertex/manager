@@ -90,14 +90,14 @@ export class ProjectsController {
   }
 
   @Post(':id/members')
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.CEO)
+  @Roles(RoleCode.SUPER_ADMIN, RoleCode.CEO, RoleCode.TECH_COMMITTEE_MANAGER)
   @ApiOperation({ summary: 'اضافه کردن عضو به پروژه' })
   async addMember(@Param('id') id: string, @Body('employeeId') employeeId: string, @GetUser() user: JwtPayload) {
     return this.projectsService.addMember(id, employeeId, user);
   }
 
   @Delete(':id/members/:employeeId')
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.CEO)
+  @Roles(RoleCode.SUPER_ADMIN, RoleCode.CEO, RoleCode.TECH_COMMITTEE_MANAGER)
   @ApiOperation({ summary: 'حذف عضو از پروژه' })
   async removeMember(@Param('id') id: string, @Param('employeeId') employeeId: string, @GetUser() user: JwtPayload) {
     return this.projectsService.removeMember(id, employeeId, user);

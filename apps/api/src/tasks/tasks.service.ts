@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { RoleCode } from '@amatis/types';
 import { PrismaService } from '../prisma/prisma.module';
 import { AuditService } from '../common/services/audit.service';
 import { DataScopeService } from '../common/services/data-scope.service';
@@ -35,7 +36,18 @@ export class TasksService {
 
   private async ensureCanAccess(task: any, user: JwtPayload) {
     if (this.dataScope.isAdmin(user) || user.roles.includes('CEO')) return;
-    if (user.roles.includes('EMPLOYEE')) {
+    if (task.projectId) {
+      const project = await this.prisma.project.findUnique({
+        where: { id: task.projectId },
+        select: { managerId: true },
+      });
+      if (project?.managerId === user.employeeProfileId) return;
+    }
+    const isExpert = [
+      'EMPLOYEE', 'EXPERT_L1', 'EXPERT_L2', 'EXPERT_L3',
+      'TECH_COMMITTEE_MEMBER', 'TECH_COMMITTEE_MANAGER', 'SALES_CONSULTANT',
+    ].some((role) => user.roles.includes(role));
+    if (isExpert && !user.roles.includes('SUPERVISOR')) {
       if (task.employeeId !== user.employeeProfileId) throw new ForbiddenException('دسترسی غیرمجاز به تسک');
     }
     if (user.roles.includes('SUPERVISOR')) {
@@ -69,9 +81,8 @@ export class TasksService {
       throw new ForbiddenException('کارشناس فقط می‌تواند تسک شخصی ایجاد کند');
     }
 
-// supervisor scope check: supervisor can assign to their direct subordinates OR
-    // to members of any project where they are manager
-    if (user.roles.includes('SUPERVISOR') && !this.dataScope.isAdmin(user) && !isPersonal) {
+// Supervisors assign to their team or to members of projects they manage.
+if (user.roles.includes('SUPERVISOR') && !this.dataScope.isAdmin(user) && !isPersonal) {
       const isInTeam = await this.prisma.employeeProfile.findFirst({ where: { id: dto.employeeId, supervisorId: user.employeeProfileId } });
       if (isInTeam) { /* ok */ }
       else if (dto.projectId) {
@@ -87,6 +98,19 @@ export class TasksService {
       }
     }
 
+    const isTechnicalManager = user.roles.includes('TECH_COMMITTEE_MANAGER');
+    const isCeo = user.roles.includes('CEO');
+    if ((isTechnicalManager || isCeo) && !isPersonal && dto.projectId && !this.dataScope.isAdmin(user)) {
+      const project = await this.prisma.project.findUnique({ where: { id: dto.projectId } });
+      if (!project) throw new NotFoundException('پروژه یافت نشد');
+      const isMember = await this.prisma.projectMember.findFirst({
+        where: { projectId: dto.projectId, employeeId: dto.employeeId },
+      });
+      if (!isMember && project.managerId !== dto.employeeId) {
+        throw new ForbiddenException('تسک فقط به اعضای همین پروژه قابل اختصاص است');
+      }
+    }
+
     const count = await this.prisma.taskAssignment.count();
     const assignmentCode = `ASN-${String(count + 1).padStart(5, '0')}`;
     const assignedById = user.employeeProfileId || null;
@@ -98,7 +122,7 @@ export class TasksService {
         employeeId: dto.employeeId,
         projectId: dto.projectId || template?.projectId,
         assignedById,
-        status: 'ASSIGNED',
+        status: 'NOT_STARTED',
         priority: dto.priority || template?.priority || 'MEDIUM',
         deadline: dto.deadline ? new Date(dto.deadline) : undefined,
         notes: dto.notes || (isPersonal ? dto.taskName : undefined),
@@ -116,7 +140,7 @@ export class TasksService {
       });
     }
 
-    await this.prisma.taskStatusHistory.create({ data: { taskAssignmentId: task.id, fromStatus: null, toStatus: 'ASSIGNED', changedById: assignedById } });
+    await this.prisma.taskStatusHistory.create({ data: { taskAssignmentId: task.id, fromStatus: null, toStatus: 'NOT_STARTED', changedById: assignedById } });
 
     // notification stub: create notification for employee
     const empUser = await this.prisma.employeeProfile.findUnique({ where: { id: dto.employeeId }, select: { userId: true } });
@@ -226,16 +250,16 @@ export class TasksService {
     await this.ensureCanAccess(task, user);
 
     const isAssignee = task.employeeId === user.employeeProfileId;
-    const isAdminOrCeo = this.dataScope.isAdmin(user) || user.roles.includes(RoleCode.CEO);
-    const isTechMgr = user.roles.includes(RoleCode.TECH_COMMITTEE_MANAGER);
 
     // Determine project supervisor: manager of the project OR direct supervisor of assignee
     let isProjectSupervisor = false;
-    if (user.roles.includes(RoleCode.SUPERVISOR)) {
-      if (task.projectId) {
-        const projMgr = await this.prisma.project.findFirst({ where: { id: task.projectId, managerId: user.employeeProfileId } });
-        if (projMgr) isProjectSupervisor = true;
-      }
+    if (task.projectId) {
+      const projMgr = await this.prisma.project.findFirst({
+        where: { id: task.projectId, managerId: user.employeeProfileId },
+      });
+      if (projMgr) isProjectSupervisor = true;
+    }
+    if (user.roles.includes(RoleCode.SUPERVISOR) && !isProjectSupervisor) {
       if (!isProjectSupervisor) {
         const emp = await this.prisma.employeeProfile.findUnique({ where: { id: task.employeeId }, select: { supervisorId: true } });
         if (emp?.supervisorId === user.employeeProfileId) isProjectSupervisor = true;
@@ -246,29 +270,15 @@ export class TasksService {
     const from = task.status;
     const to = dto.status;
 
-    // APPROVED/REJECTED/CANCELLED are terminal — only admin/CEO can change (within lock rules)
-    if (['APPROVED','REJECTED','CANCELLED'].includes(from)) {
-      if (!isAdminOrCeo) {
-        throw new ForbiddenException('تسک در وضعیت نهایی است؛ فقط مدیر فنی/مدیرعامل می‌تواند تغییر دهد');
-      }
-    }
-
-    // Admin/CEO/tech-manager can change freely (within overdue lock)
-    if (isAdminOrCeo || isTechMgr) {
-      // still respect overdue lock
-      if (task.deadline && !['APPROVED','CANCELLED'].includes(from)) {
-        const daysOverdue = Math.ceil((new Date().getTime() - new Date(task.deadline).getTime()) / (1000*60*60*24));
-        if (daysOverdue > 7 && !isAdminOrCeo) {
-          throw new ForbiddenException('این تسک به دلیل تأخیر بیش از حد قفل شده است');
-        }
-      }
-      return this.finalizeStatusChange(task, dto, user, from, to);
+    if (['APPROVED', 'REJECTED', 'CANCELLED'].includes(from)) {
+      throw new ForbiddenException('تسک در وضعیت نهایی است و قابل تغییر نیست');
     }
 
     // ---- Non-admin workflow ----
 
     // Assignee transitions (کارشناس/مسئول تسک)
     const assigneeAllowed: Record<string, string[]> = {
+      ASSIGNED: ['NOT_STARTED', 'IN_PROGRESS'],
       NOT_STARTED: ['IN_PROGRESS'],
       IN_PROGRESS: ['SUBMITTED'],
       DELAYED: ['IN_PROGRESS'],
@@ -279,7 +289,7 @@ export class TasksService {
     }
 
     // Project supervisor: only approve/reject SUBMITTED
-    if (isProjectSupervisor && from === 'SUBMITTED' && ['APPROVED','NEED_REVISION','REJECTED'].includes(to)) {
+    if (isProjectSupervisor && from === 'SUBMITTED' && ['APPROVED','NEED_REVISION'].includes(to)) {
       return this.finalizeStatusChange(task, dto, user, from, to);
     }
 
@@ -347,7 +357,18 @@ export class TasksService {
     const task = await this.prisma.taskAssignment.findFirst({ where: { id, deletedAt: null } });
     if (!task) throw new NotFoundException('تسک یافت نشد');
     await this.ensureCanAccess(task, user);
-    if (!this.dataScope.isAdmin(user) && !user.roles.includes('SUPERVISOR') && !user.roles.includes('CEO')) throw new ForbiddenException('فقط سرپرست می‌تواند درخواست اصلاح دهد');
+    const isProjectSupervisor = task.projectId
+      ? !!(await this.prisma.project.findFirst({
+          where: { id: task.projectId, managerId: user.employeeProfileId },
+        }))
+      : false;
+    const isDirectSupervisor = user.roles.includes('SUPERVISOR') &&
+      !!(await this.prisma.employeeProfile.findFirst({
+        where: { id: task.employeeId, supervisorId: user.employeeProfileId },
+      }));
+    if (task.status !== 'SUBMITTED' || (!isProjectSupervisor && !isDirectSupervisor && !this.dataScope.isAdmin(user))) {
+      throw new ForbiddenException('فقط سرپرست پروژه می‌تواند برای تسک ارسال‌شده درخواست اصلاح دهد');
+    }
 
     const revisionNumber = task.revisionCount + 1;
     const revision = await this.prisma.taskRevision.create({
