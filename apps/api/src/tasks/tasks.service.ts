@@ -239,7 +239,10 @@ if (user.roles.includes('SUPERVISOR') && !this.dataScope.isAdmin(user) && !isPer
         projects: { include: { project: { select: { id: true, name: true, code: true } } } },
         statusHistory: { orderBy: { createdAt: 'desc' }, include: { changedBy: { select: { id: true, firstName: true, lastName: true } } } },
         revisions: { orderBy: { revisionNumber: 'desc' } },
-        attachments: { orderBy: { createdAt: 'desc' } },
+        attachments: {
+          orderBy: { createdAt: 'desc' },
+          include: { uploadedBy: { select: { id: true, employeeProfile: { select: { firstName: true, lastName: true } } } } },
+        },
         comments: { orderBy: { createdAt: 'asc' }, include: { author: { select: { id: true, mobile: true, employeeProfile: { select: { id: true, firstName: true, lastName: true, avatarUrl: true } } } } } },
         evaluation: true,
         qualityControl: true,

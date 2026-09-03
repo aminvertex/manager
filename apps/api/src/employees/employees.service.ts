@@ -253,16 +253,12 @@ export class EmployeesService {
       throw new ForbiddenException('دسترسی غیرمجاز');
     }
 
-    if (!isAdmin) {
-      const allowedFields = ['firstName', 'lastName', 'email', 'age', 'gender', 'maritalStatus'];
-      const dtoKeys = Object.keys(dto);
-      const hasForbidden = dtoKeys.some((k) => !allowedFields.includes(k));
-      if (hasForbidden) {
-        throw new ForbiddenException('فقط برخی فیلدها قابل ویرایش هستند');
-      }
-    }
-
-    const data: any = { ...dto };
+    const editableFields = ['firstName', 'lastName', 'email', 'age', 'gender', 'maritalStatus'];
+    const data: Record<string, unknown> = isAdmin
+      ? { ...dto }
+      : Object.fromEntries(editableFields
+        .filter((field) => Object.prototype.hasOwnProperty.call(dto, field))
+        .map((field) => [field, (dto as Record<string, unknown>)[field]]));
     if (data.supervisorId !== undefined) data.supervisorId = data.supervisorId || null;
     if (data.primaryProjectId !== undefined) data.primaryProjectId = data.primaryProjectId || null;
 
