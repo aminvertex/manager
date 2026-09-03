@@ -239,19 +239,26 @@ if (user.roles.includes('SUPERVISOR') && !this.dataScope.isAdmin(user) && !isPer
         projects: { include: { project: { select: { id: true, name: true, code: true } } } },
         statusHistory: { orderBy: { createdAt: 'desc' }, include: { changedBy: { select: { id: true, firstName: true, lastName: true } } } },
         revisions: { orderBy: { revisionNumber: 'desc' } },
-        attachments: {
-          orderBy: { createdAt: 'desc' },
-          include: { uploadedBy: { select: { id: true, employeeProfile: { select: { firstName: true, lastName: true } } } } },
-        },
+        attachments: { orderBy: { createdAt: 'desc' } },
         comments: { orderBy: { createdAt: 'asc' }, include: { author: { select: { id: true, mobile: true, employeeProfile: { select: { id: true, firstName: true, lastName: true, avatarUrl: true } } } } } },
         evaluation: true,
         qualityControl: true,
       },
     });
     if (!task) throw new NotFoundException('تسک یافت نشد');
+    const uploaderIds = [...new Set(task.attachments.map((attachment) => attachment.uploadedById).filter((id): id is string => !!id))];
+    const uploaders = await this.prisma.user.findMany({
+      where: { id: { in: uploaderIds } },
+      select: { id: true, employeeProfile: { select: { firstName: true, lastName: true } } },
+    });
+    const uploaderMap = new Map(uploaders.map((uploader) => [uploader.id, uploader]));
+    const attachments = task.attachments.map((attachment) => ({
+      ...attachment,
+      uploadedBy: attachment.uploadedById ? uploaderMap.get(attachment.uploadedById) : undefined,
+    }));
     await this.ensureCanAccess(task, user);
     const delay = this.calculateDelay(task.deadline, task.completionTime, task.status);
-    return { ...task, isDelayed: delay.isDelayed, delayDays: delay.delayDays, isLateDelivery: delay.isLateDelivery };
+    return { ...task, attachments, isDelayed: delay.isDelayed, delayDays: delay.delayDays, isLateDelivery: delay.isLateDelivery };
   }
 
   async updateStatus(id: string, dto: UpdateTaskStatusDto, user: JwtPayload) {

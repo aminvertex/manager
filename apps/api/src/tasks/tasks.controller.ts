@@ -136,10 +136,10 @@ export class TasksController {
   async deleteAttachment(@Param('attachmentId') attachmentId: string, @GetUser() user: JwtPayload) {
     const attachment = await this.prisma.taskAttachment.findUnique({
       where: { id: attachmentId },
-      include: { taskAssignment: { select: { id: true, status: true, employeeId: true, projectId: true } } },
+      include: { task: { select: { id: true, status: true, employeeId: true, projectId: true } } },
     });
     if (!attachment) throw new NotFoundException('فایل یافت نشد');
-    const task = attachment.taskAssignment;
+    const task = attachment.task;
     const fullAccess = user.roles.includes(RoleCode.SUPER_ADMIN) || user.roles.includes(RoleCode.CEO) || user.roles.includes(RoleCode.TECH_COMMITTEE_MANAGER);
     const project = task.projectId ? await this.prisma.project.findUnique({ where: { id: task.projectId }, select: { managerId: true } }) : null;
     const isProjectSupervisor = project?.managerId === user.employeeProfileId;
