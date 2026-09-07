@@ -47,7 +47,7 @@ const KPI_LABELS: Record<string, string> = {
 export default function SettingsPage() {
   const qc = useQueryClient();
   const { hasRole } = useAuth();
-  const isAdmin = hasRole(RoleCode.SUPER_ADMIN);
+  const isAdmin = hasRole(RoleCode.SUPER_ADMIN) || hasRole(RoleCode.CEO) || hasRole(RoleCode.TECH_COMMITTEE_MANAGER);
 
   const { data: weights, isLoading: wLoading } = useQuery({
     queryKey: ['settings-kpi'],
@@ -85,6 +85,22 @@ export default function SettingsPage() {
   const saveScheduler = useMutation({
     mutationFn: () => api.put('/settings/scheduler_settings', { value: schedulerCurrent, category: 'general', label: 'زمان‌بندی یادآوری‌ها' }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['settings-scheduler'] }); toast({ title: 'زمان‌بندی ذخیره شد' }); },
+    onError: (e) => toast({ title: 'خطا', description: (e as ApiError).message, variant: 'destructive' }),
+  });
+
+  type ChecklistSchedule = {
+    dailyStartHour: number; dailyEndHour: number; dailyEndMinute: number;
+    weeklyStartDay: number; weeklyStartHour: number; weeklyEndDay: number; weeklyEndHour: number; weeklyEndMinute: number;
+  };
+  const { data: checklistSchedule } = useQuery({
+    queryKey: ['settings-checklist-schedule'],
+    queryFn: () => api.get<ChecklistSchedule>('/checklists/schedule'),
+  });
+  const [checklistForm, setChecklistForm] = useState<Partial<ChecklistSchedule>>({});
+  const checklistCurrent = { ...checklistSchedule, ...checklistForm } as ChecklistSchedule;
+  const saveChecklistSchedule = useMutation({
+    mutationFn: () => api.put('/settings/checklist_schedule', { value: checklistCurrent, category: 'general', label: 'زمان‌بندی چک‌لیست‌ها' }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['settings-checklist-schedule'] }); toast({ title: 'زمان‌بندی چک‌لیست‌ها ذخیره شد' }); },
     onError: (e) => toast({ title: 'خطا', description: (e as ApiError).message, variant: 'destructive' }),
   });
 
@@ -154,6 +170,28 @@ export default function SettingsPage() {
               )}
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2"><Clock className="h-4 w-4" /> پنجره ثبت چک‌لیست‌ها</CardTitle>
+          <CardDescription>ساعت شروع و پایان ثبت روزانه و هفتگی را تعیین کنید. روزها از ۰ یکشنبه تا ۶ شنبه هستند.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div><Label>شروع روزانه</Label><Input type="number" min={0} max={23} disabled={!isAdmin} value={checklistCurrent.dailyStartHour ?? 0} onChange={(e) => setChecklistForm({ ...checklistCurrent, dailyStartHour: Number(e.target.value) })} /></div>
+            <div><Label>ساعت پایان روزانه</Label><Input type="number" min={0} max={23} disabled={!isAdmin} value={checklistCurrent.dailyEndHour ?? 23} onChange={(e) => setChecklistForm({ ...checklistCurrent, dailyEndHour: Number(e.target.value) })} /></div>
+            <div><Label>دقیقه پایان روزانه</Label><Input type="number" min={0} max={59} disabled={!isAdmin} value={checklistCurrent.dailyEndMinute ?? 50} onChange={(e) => setChecklistForm({ ...checklistCurrent, dailyEndMinute: Number(e.target.value) })} /></div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-5">
+            <div><Label>روز شروع هفتگی</Label><Input type="number" min={0} max={6} disabled={!isAdmin} value={checklistCurrent.weeklyStartDay ?? 4} onChange={(e) => setChecklistForm({ ...checklistCurrent, weeklyStartDay: Number(e.target.value) })} /></div>
+            <div><Label>ساعت شروع</Label><Input type="number" min={0} max={23} disabled={!isAdmin} value={checklistCurrent.weeklyStartHour ?? 8} onChange={(e) => setChecklistForm({ ...checklistCurrent, weeklyStartHour: Number(e.target.value) })} /></div>
+            <div><Label>روز پایان هفتگی</Label><Input type="number" min={0} max={6} disabled={!isAdmin} value={checklistCurrent.weeklyEndDay ?? 5} onChange={(e) => setChecklistForm({ ...checklistCurrent, weeklyEndDay: Number(e.target.value) })} /></div>
+            <div><Label>ساعت پایان</Label><Input type="number" min={0} max={23} disabled={!isAdmin} value={checklistCurrent.weeklyEndHour ?? 23} onChange={(e) => setChecklistForm({ ...checklistCurrent, weeklyEndHour: Number(e.target.value) })} /></div>
+            <div><Label>دقیقه پایان</Label><Input type="number" min={0} max={59} disabled={!isAdmin} value={checklistCurrent.weeklyEndMinute ?? 50} onChange={(e) => setChecklistForm({ ...checklistCurrent, weeklyEndMinute: Number(e.target.value) })} /></div>
+          </div>
+          {isAdmin && <Button onClick={() => saveChecklistSchedule.mutate()}><Save className="h-4 w-4 ml-2" /> ذخیره زمان‌بندی چک‌لیست</Button>}
         </CardContent>
       </Card>
 

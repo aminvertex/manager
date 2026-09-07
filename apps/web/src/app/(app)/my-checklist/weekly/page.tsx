@@ -7,7 +7,7 @@ import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
-import { toPersianDigits } from '@/lib/date';
+import { localDateKey, toPersianDigits } from '@/lib/date';
 import { ChecklistCalendar } from '@/components/checklists/checklist-calendar';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
@@ -32,28 +32,44 @@ export default function WeeklyChecklistPage() {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [detailsDate, setDetailsDate] = useState<string | null>(null);
+  const [calendarMonth, setCalendarMonth] = useState(new Date());
 
   const today = new Date();
   const dayOfWeek = today.getDay();
-  const weekStart = new Date(today); weekStart.setDate(today.getDate() - dayOfWeek);
-  const weekEnd = new Date(today); weekEnd.setDate(today.getDate() + (6 - dayOfWeek));
+  const weekStart = new Date(today); weekStart.setDate(today.getDate() - ((dayOfWeek + 1) % 7)); weekStart.setHours(0, 0, 0, 0);
+  const weekEnd = new Date(weekStart); weekEnd.setDate(weekStart.getDate() + 6); weekEnd.setHours(0, 0, 0, 0);
+  const weekStartKey = localDateKey(weekStart);
+  const weekEndKey = localDateKey(weekEnd);
 
   const { data: existing } = useQuery({
     queryKey: ['weekly-checklist', empId],
     queryFn: async () => {
       if (!empId) return null;
-      const res = await api.get<{ data: any }>(`/checklists/weekly/${empId}`);
-      return Array.isArray(res.data) ? res.data : [];
+      return api.get<any[]>(`/checklists/weekly/${empId}`);
     },
     enabled: !!empId,
   });
-  const current = existing?.find((item: any) => item.weekStart?.slice(0, 10) === weekStart.toISOString().slice(0, 10));
-  const locked = today.getDay() > 5 || (today.getDay() === 5 && (today.getHours() > 23 || (today.getHours() === 23 && today.getMinutes() >= 50)));
+  const current = existing?.find((item: any) => item.weekStart?.slice(0, 10) === weekStartKey);
+  const { data: schedule } = useQuery({
+    queryKey: ['checklist-schedule'],
+    queryFn: () => api.get<{ weeklyStartDay: number; weeklyStartHour: number; weeklyEndDay: number; weeklyEndHour: number; weeklyEndMinute: number }>('/checklists/schedule'),
+  });
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const daySpan = ((schedule?.weeklyEndDay ?? 5) - (schedule?.weeklyStartDay ?? 4) + 7) % 7;
+  const windowStart = new Date(weekEnd); windowStart.setDate(weekEnd.getDate() - daySpan); windowStart.setHours(schedule?.weeklyStartHour ?? 8, 0, 0, 0);
+  const windowEnd = new Date(weekEnd); windowEnd.setHours(schedule?.weeklyEndHour ?? 23, schedule?.weeklyEndMinute ?? 50, 0, 0);
+  const locked = now < windowStart || now > windowEnd;
+  const remainingSeconds = Math.max(0, Math.floor((windowEnd.getTime() - now.getTime()) / 1000));
+  const countdown = `${toPersianDigits(Math.floor(remainingSeconds / 86400).toString().padStart(2, '0'))} روز ${toPersianDigits(Math.floor((remainingSeconds % 86400) / 3600).toString().padStart(2, '0'))}:${toPersianDigits(Math.floor((remainingSeconds % 3600) / 60).toString().padStart(2, '0'))}`;
 
   const submit = useMutation({
     mutationFn: (items: Record<string, string>) => api.post(`/checklists/weekly/${empId}`, {
-      weekStart: weekStart.toISOString().split('T')[0],
-      weekEnd: weekEnd.toISOString().split('T')[0],
+      weekStart: weekStartKey,
+      weekEnd: weekEndKey,
       items,
     }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['weekly-checklist'] }); setSaving(false); },
@@ -81,13 +97,13 @@ export default function WeeklyChecklistPage() {
         <h1 className="text-2xl font-bold">چک‌لیست هفتگی</h1>
         <p className="text-muted-foreground text-sm">بررسی فعالیت‌های هفتگی</p>
       </div>
-      <Card><CardHeader><CardTitle>تقویم وضعیت هفتگی</CardTitle><CardDescription>هفته جاری تا جمعه ساعت ۲۳:۵۰ قابل ثبت است</CardDescription></CardHeader><CardContent><ChecklistCalendar month={today} records={(existing || []).map((item: any) => ({ date: item.weekStart, weekStart: item.weekStart, completionRate: item.completionRate, items: item.items }))} selected={weekStart.toISOString().slice(0, 10)} onSelect={setDetailsDate} disabled={(key) => key !== weekStart.toISOString().slice(0, 10)} /></CardContent></Card>
+      <Card><CardHeader><CardTitle>تقویم شمسی وضعیت هفتگی</CardTitle><CardDescription>ثبت این هفته از پنج‌شنبه ساعت ۸ تا جمعه ساعت ۲۳:۵۰ فعال است. زمان باقی‌مانده: {locked ? 'پنجره بسته است' : countdown}</CardDescription></CardHeader><CardContent><ChecklistCalendar mode="weekly" month={calendarMonth} records={(existing || []).map((item: any) => ({ date: item.weekStart, weekStart: item.weekStart, completionRate: item.completionRate, items: item.items }))} selected={weekStartKey} onSelect={setDetailsDate} onMonthChange={setCalendarMonth} disabled={(key) => key !== weekStartKey} /></CardContent></Card>
 
       <Card className={locked ? 'relative overflow-hidden' : ''}>
         {locked && <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/65 backdrop-blur-sm"><div className="text-center"><LockKeyhole className="mx-auto h-8 w-8 text-muted-foreground" /><p className="mt-2 text-sm">مهلت ثبت چک‌لیست هفتگی به پایان رسیده است</p></div></div>}
         <CardHeader>
-          <CardTitle>بررسی هفته</CardTitle>
-          <CardDescription>هفته {toPersianDigits(Math.ceil(today.getDate() / 7))} ماه جاری</CardDescription>
+          <CardTitle className="flex items-center justify-between"><span>بررسی هفته</span><span className="text-sm text-primary">{locked ? 'قفل شده' : countdown}</span></CardTitle>
+          <CardDescription>هفته جاری از {toPersianDigits(weekStart.getDate())} تا {toPersianDigits(weekEnd.getDate())}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           {WEEKLY_ITEMS.map((item) => (

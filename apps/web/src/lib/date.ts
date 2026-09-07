@@ -89,11 +89,24 @@ export function jalaliMonthGrid(jy: number, jm: number): (number | null)[] {
   const gd = j2g(jy, jm, 1);
   const first = new Date(gd.year, gd.month - 1, gd.day);
   const startWeekday = (first.getDay() + 1) % 7; // shift so Saturday=0 (week starts Saturday in Iran)
-  const daysInMonth = jm <= 6 ? 31 : jm <= 11 ? 30 : 29;
+  const daysInMonth = jalaliDaysInMonth(jy, jm);
   const cells: (number | null)[] = [];
   for (let i = 0; i < startWeekday; i++) cells.push(null);
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
   return cells;
+}
+
+export function jalaliDaysInMonth(jy: number, jm: number): number {
+  if (jm <= 6) return 31;
+  if (jm <= 11) return 30;
+  const current = j2g(jy, 12, 29);
+  const next = j2g(jy + 1, 1, 1);
+  return new Date(next.year, next.month - 1, next.day).getTime() -
+    new Date(current.year, current.month - 1, current.day).getTime() > 24 * 60 * 60 * 1000 ? 30 : 29;
+}
+
+export function localDateKey(date = new Date()): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
 export function j2g(jy: number, jm: number, jd: number): { year: number; month: number; day: number } {

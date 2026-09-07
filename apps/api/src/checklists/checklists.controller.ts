@@ -35,14 +35,20 @@ export class ChecklistsController {
     return this.service.getWeekly(employeeId, user);
   }
 
+  @Get('schedule')
+  getSchedule() {
+    return this.service.getSchedule();
+  }
+
   @Get('overview')
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.CEO, RoleCode.TECH_COMMITTEE_MANAGER)
   getOverview(
     @Query('type') type: 'daily' | 'weekly',
     @Query('from') from: string,
     @Query('to') to: string,
+    @Query('employeeId') employeeId: string,
     @GetUser() user: JwtPayload,
   ) {
-    return this.service.getAdminOverview(type === 'weekly' ? 'weekly' : 'daily', from, to, user);
+    return this.service.getAdminOverview(type === 'weekly' ? 'weekly' : 'daily', from, to, user, employeeId);
   }
 }
