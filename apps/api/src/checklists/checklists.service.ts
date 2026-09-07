@@ -20,7 +20,7 @@ export class ChecklistsService {
 
   async submitDaily(employeeId: string, dto: SubmitDailyChecklistDto, user: JwtPayload) {
     await this.ensureSelf(employeeId, user);
-    if (!this.isAdmin(user) && !this.canSubmitDaily(dto.date)) {
+    if (!this.isAdmin(user) && !(await this.canSubmitDaily(dto.date))) {
       throw new BadRequestException('مهلت ثبت چک‌لیست امروز به پایان رسیده است');
     }
     const date = new Date(dto.date + 'T00:00:00.000Z');
@@ -48,7 +48,7 @@ export class ChecklistsService {
 
   async submitWeekly(employeeId: string, dto: SubmitWeeklyChecklistDto, user: JwtPayload) {
     await this.ensureSelf(employeeId, user);
-    if (!this.isAdmin(user) && !this.canSubmitWeekly(dto.weekStart, dto.weekEnd)) {
+    if (!this.isAdmin(user) && !(await this.canSubmitWeekly(dto.weekStart, dto.weekEnd))) {
       throw new BadRequestException('مهلت ثبت چک‌لیست این هفته به پایان رسیده است');
     }
     const completionRate = this.computeCompletion(dto.items);
@@ -78,7 +78,22 @@ export class ChecklistsService {
     return this.prisma.weeklyChecklist.findMany({ where: { employeeId }, orderBy: { weekStart: 'desc' }, take: 12 });
   }
 
-  async getAdminOverview(type: 'daily' | 'weekly', from: string, to: string, user: JwtPayload) {
+  async getSchedule() {
+    const setting = await this.prisma.setting.findUnique({ where: { key: 'checklist_schedule' } });
+    return {
+      dailyStartHour: 0,
+      dailyEndHour: 23,
+      dailyEndMinute: 50,
+      weeklyStartDay: 4,
+      weeklyStartHour: 8,
+      weeklyEndDay: 5,
+      weeklyEndHour: 23,
+      weeklyEndMinute: 50,
+      ...((setting?.value || {}) as Record<string, number>),
+    };
+  }
+
+  async getAdminOverview(type: 'daily' | 'weekly', from: string, to: string, user: JwtPayload, employeeId?: string) {
     if (!this.isAdmin(user)) throw new ForbiddenException('دسترسی غیرمجاز');
     const employees = await this.prisma.employeeProfile.findMany({
       where: { deletedAt: null, user: { isActive: true } },
@@ -87,13 +102,13 @@ export class ChecklistsService {
     });
     if (type === 'daily') {
       const records = await this.prisma.dailyChecklist.findMany({
-        where: { date: { gte: new Date(`${from}T00:00:00.000Z`), lte: new Date(`${to}T00:00:00.000Z`) } },
+        where: { ...(employeeId ? { employeeId } : {}), date: { gte: new Date(`${from}T00:00:00.000Z`), lte: new Date(`${to}T23:59:59.999Z`) } },
         orderBy: { date: 'asc' },
       });
       return { employees, records };
     }
     const records = await this.prisma.weeklyChecklist.findMany({
-      where: { weekStart: { gte: new Date(`${from}T00:00:00.000Z`), lte: new Date(`${to}T00:00:00.000Z`) } },
+      where: { ...(employeeId ? { employeeId } : {}), weekStart: { gte: new Date(`${from}T00:00:00.000Z`), lte: new Date(`${to}T23:59:59.999Z`) } },
       orderBy: { weekStart: 'asc' },
     });
     return { employees, records };
@@ -114,17 +129,31 @@ export class ChecklistsService {
     return this.dataScope.isAdmin(user) || user.roles.includes('CEO') || user.roles.includes('TECH_COMMITTEE_MANAGER');
   }
 
-  private canSubmitDaily(dateValue: string) {
+  private async canSubmitDaily(dateValue: string) {
+    const config = await this.getSchedule();
     const now = new Date();
-    const today = now.toISOString().slice(0, 10);
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     if (dateValue !== today) return false;
-    return now.getHours() < 23 || (now.getHours() === 23 && now.getMinutes() < 50);
+    const start = config.dailyStartHour ?? 0;
+    const endHour = config.dailyEndHour ?? 23;
+    const endMinute = config.dailyEndMinute ?? 50;
+    const minutes = now.getHours() * 60 + now.getMinutes();
+    return minutes >= start * 60 && minutes < endHour * 60 + endMinute;
   }
 
-  private canSubmitWeekly(startValue: string, endValue: string) {
+  private async canSubmitWeekly(startValue: string, endValue: string) {
+    const config = await this.getSchedule();
     const now = new Date();
-    const start = new Date(`${startValue}T00:00:00.000Z`);
     const end = new Date(`${endValue}T00:00:00.000Z`);
-    return now >= start && now <= new Date(end.getTime() + (23 * 60 + 50) * 60 * 1000);
+    const startDay = config.weeklyStartDay;
+    const endDay = config.weeklyEndDay;
+    const currentDay = now.getDay();
+    const daySpan = (endDay - startDay + 7) % 7;
+    const windowStart = new Date(end);
+    windowStart.setUTCDate(windowStart.getUTCDate() - daySpan);
+    windowStart.setUTCHours(config.weeklyStartHour, 0, 0, 0);
+    const windowEnd = new Date(end);
+    windowEnd.setUTCHours(config.weeklyEndHour, config.weeklyEndMinute, 0, 0);
+    return currentDay >= startDay && currentDay <= endDay && now >= windowStart && now <= windowEnd;
   }
 }

@@ -11,7 +11,7 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/hooks/use-toast';
 import { DAILY_CHECKLIST_ITEMS } from '@amatis/shared';
-import { toPersianDigits, toJalaliDate } from '@/lib/date';
+import { toPersianDigits, toJalaliDate, localDateKey } from '@/lib/date';
 import { ChecklistCalendar } from '@/components/checklists/checklist-calendar';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
@@ -21,28 +21,39 @@ export default function DailyChecklistPage() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const empId = user?.employeeProfile?.id;
-  const date = new Date().toISOString().split('T')[0];
+  const date = localDateKey();
   const [answers, setAnswers] = useState<Record<string, Answer>>({});
   const [saving, setSaving] = useState(false);
   const [selectedDate, setSelectedDate] = useState(date);
   const [detailsDate, setDetailsDate] = useState<string | null>(null);
+  const [calendarMonth, setCalendarMonth] = useState(new Date());
 
   const { data: history, isLoading } = useQuery({
     queryKey: ['daily-checklist', empId],
-    queryFn: () => api.get<{ data: Array<{ date: string; completionRate: number; items: Record<string, string> }> }>(`/checklists/daily/${empId}`),
+    queryFn: () => api.get<Array<{ date: string; completionRate: number; items: Record<string, string> }>>(`/checklists/daily/${empId}`),
     enabled: !!empId,
   });
 
-  const today = history?.data?.find((h) => h.date.slice(0, 10) === selectedDate);
-  const now = new Date();
-  const locked = now.getHours() > 23 || (now.getHours() === 23 && now.getMinutes() >= 50);
+  const today = history?.find((h) => h.date.slice(0, 10) === selectedDate);
+  const { data: schedule } = useQuery({
+    queryKey: ['checklist-schedule'],
+    queryFn: () => api.get<{ dailyStartHour: number; dailyEndHour: number; dailyEndMinute: number }>('/checklists/schedule'),
+  });
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const dailyStart = new Date(now); dailyStart.setHours(schedule?.dailyStartHour ?? 0, 0, 0, 0);
+  const dailyEnd = new Date(now); dailyEnd.setHours(schedule?.dailyEndHour ?? 23, schedule?.dailyEndMinute ?? 50, 0, 0);
+  const locked = now < dailyStart || now >= dailyEnd;
+  const remainingSeconds = Math.max(0, Math.floor((dailyEnd.getTime() - now.getTime()) / 1000));
+  const countdown = `${toPersianDigits(Math.floor(remainingSeconds / 3600).toString().padStart(2, '0'))}:${toPersianDigits(Math.floor((remainingSeconds % 3600) / 60).toString().padStart(2, '0'))}:${toPersianDigits((remainingSeconds % 60).toString().padStart(2, '0'))}`;
   const isToday = selectedDate === date;
 
   useEffect(() => {
-    if (today?.items) {
-      setAnswers(today.items as Record<string, Answer>);
-    }
-  }, [today?.date]);
+    setAnswers(today?.items ? today.items as Record<string, Answer> : {});
+  }, [today?.date, selectedDate]);
 
   const autoSave = useMutation({
     mutationFn: (items: Record<string, Answer>) => api.post(`/checklists/daily/${empId}`, { date: selectedDate, items }),
@@ -61,6 +72,7 @@ export default function DailyChecklistPage() {
   const total = DAILY_CHECKLIST_ITEMS.length;
   const completion = total > 0 ? Math.round((answered / total) * 100) : 0;
 
+  const startDate = user?.employeeProfile?.startDate ? localDateKey(new Date(user.employeeProfile.startDate)) : null;
   return (
     <div className="space-y-6 max-w-3xl">
       <div>
@@ -80,14 +92,15 @@ export default function DailyChecklistPage() {
         </Card>
       )}
 
+      <div className="grid gap-6 lg:grid-cols-2">
       <Card>
         <CardHeader><CardTitle>تقویم وضعیت روزانه</CardTitle><CardDescription>تیک: کامل، تعجب: ناقص، ضربدر: بدون ثبت</CardDescription></CardHeader>
-        <CardContent><ChecklistCalendar month={new Date()} records={history?.data || []} selected={selectedDate} onSelect={setSelectedDate} disabled={(key) => key !== date} /></CardContent>
+        <CardContent><ChecklistCalendar month={calendarMonth} records={history || []} selected={selectedDate} onSelect={(key) => { setSelectedDate(key); setDetailsDate(key); }} onMonthChange={setCalendarMonth} disabled={(key) => key !== date || (!!startDate && key < startDate)} showEmpty={(key) => key <= date && (!startDate || key >= startDate)} /></CardContent>
       </Card>
       <Card className={!isToday || locked ? 'relative overflow-hidden' : ''}>
         {(!isToday || locked) && <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/65 backdrop-blur-sm"><div className="text-center"><LockKeyhole className="mx-auto h-8 w-8 text-muted-foreground" /><p className="mt-2 text-sm font-medium">{locked ? 'مهلت ثبت امروز ساعت ۲۳:۵۰ به پایان رسیده است' : 'فقط چک‌لیست امروز قابل ثبت است'}</p></div></div>}
         <CardHeader>
-          <CardTitle>آیتم‌های امروز</CardTitle>
+          <CardTitle className="flex items-center justify-between"><span>آیتم‌های امروز</span><span className="text-sm text-primary">{isToday && !locked ? `زمان باقی‌مانده ${countdown}` : 'قفل شده'}</span></CardTitle>
           <CardDescription>{toPersianDigits(answered)} از {toPersianDigits(total)} پاسخ داده شده</CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
@@ -130,17 +143,18 @@ export default function DailyChecklistPage() {
           </div>
         </CardContent>
       </Card>
+      </div>
       <Dialog open={!!detailsDate} onOpenChange={(open) => !open && setDetailsDate(null)}>
         <DialogContent><DialogHeader><DialogTitle>جزئیات چک‌لیست {detailsDate}</DialogTitle></DialogHeader>
-          <div className="space-y-2">{(history?.data?.find((h) => h.date.slice(0, 10) === detailsDate)?.items ? Object.entries(history.data.find((h) => h.date.slice(0, 10) === detailsDate)!.items) : []).map(([item, value]) => <div key={item} className="flex justify-between rounded-lg border p-2 text-sm"><span>{item}</span><Badge variant="outline">{value}</Badge></div>)}</div>
+          <div className="space-y-2">{(history?.find((h) => h.date.slice(0, 10) === detailsDate)?.items ? Object.entries(history.find((h) => h.date.slice(0, 10) === detailsDate)!.items) : []).map(([item, value]) => <div key={item} className="flex justify-between rounded-lg border p-2 text-sm"><span>{item}</span><Badge variant="outline">{value}</Badge></div>)}</div>
         </DialogContent>
       </Dialog>
 
-      {history?.data && history.data.length > 0 && (
+      {history && history.length > 0 && (
         <Card>
           <CardHeader><CardTitle className="text-base">تاریخچه روزهای قبل</CardTitle></CardHeader>
           <CardContent className="space-y-2">
-            {history.data.slice(0, 10).map((h) => (
+            {history.slice(0, 10).map((h) => (
               <div key={h.date} className="flex items-center justify-between rounded-lg border p-3">
                 <span className="text-sm">چک‌لیست {toJalaliDate(h.date)}</span>
                 <Badge className={h.completionRate >= 80 ? 'bg-success/15 text-success' : h.completionRate >= 50 ? 'bg-warning/15 text-warning' : 'bg-destructive/15 text-destructive'}>

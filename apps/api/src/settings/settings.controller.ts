@@ -89,7 +89,7 @@ export class SettingsController {
   }
 
   @Put(':key')
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.CEO)
+  @Roles(RoleCode.SUPER_ADMIN, RoleCode.CEO, RoleCode.TECH_COMMITTEE_MANAGER)
   @ApiOperation({ summary: 'بروزرسانی تنظیم' })
   async upsert(
     @Param('key') key: string,
