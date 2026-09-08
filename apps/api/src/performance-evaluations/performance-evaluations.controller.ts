@@ -31,13 +31,33 @@ export class PerformanceEvaluationsController {
   }
 
   @Post('self')
-  @Roles(RoleCode.EMPLOYEE)
+  @Roles(
+    RoleCode.EMPLOYEE,
+    RoleCode.EXPERT_L1,
+    RoleCode.EXPERT_L2,
+    RoleCode.EXPERT_L3,
+    RoleCode.SALES_CONSULTANT,
+    RoleCode.SUPERVISOR,
+    RoleCode.TECH_COMMITTEE_MEMBER,
+    RoleCode.TECH_COMMITTEE_MANAGER,
+    RoleCode.CEO,
+  )
   submitSelf(@Body() dto: any, @GetUser() user: any) {
     return this.service.submitSelf(user.employeeProfileId, dto, user);
   }
 
   @Delete('self/:id')
-  @Roles(RoleCode.EMPLOYEE)
+  @Roles(
+    RoleCode.EMPLOYEE,
+    RoleCode.EXPERT_L1,
+    RoleCode.EXPERT_L2,
+    RoleCode.EXPERT_L3,
+    RoleCode.SALES_CONSULTANT,
+    RoleCode.SUPERVISOR,
+    RoleCode.TECH_COMMITTEE_MEMBER,
+    RoleCode.TECH_COMMITTEE_MANAGER,
+    RoleCode.CEO,
+  )
   removeSelf(@Param('id') id: string, @GetUser() user: any) {
     return this.service.removeSelf(id, user);
   }

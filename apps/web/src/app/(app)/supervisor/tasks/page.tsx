@@ -34,26 +34,32 @@ export default function SupervisorTasksPage() {
   const { user } = useAuth();
   const employeeId = params.get('employeeId') || '';
   const [status, setStatus] = useState('');
+  const [projectFilter, setProjectFilter] = useState('');
+  const [priority, setPriority] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ taskTemplateId: '', employeeId: employeeId || '', projectId: '', deadline: '', priority: 'MEDIUM' });
   const qc = useQueryClient();
 
   const { data, isLoading } = useQuery({
-    queryKey: ['sup-tasks', employeeId, status],
+    queryKey: ['sup-tasks', employeeId, status, projectFilter, priority, dateFrom, dateTo],
     queryFn: () => api.get<{ success: boolean; data: TaskItem[] }>(
-      `/tasks?limit=200${employeeId ? `&employeeId=${employeeId}` : ''}${status ? `&status=${status}` : ''}`,
+      `/tasks?limit=200${employeeId ? `&employeeId=${employeeId}` : ''}${status ? `&status=${status}` : ''}${projectFilter ? `&projectId=${projectFilter}` : ''}${priority ? `&priority=${priority}` : ''}${dateFrom ? `&from=${dateFrom}` : ''}${dateTo ? `&to=${dateTo}` : ''}`,
     ),
   });
 
   const { data: templates } = useQuery({
     queryKey: ['sup-templates'],
-    queryFn: () => api.get<{ success: boolean; data: TemplateItem[] }>('/task-templates?limit=100'),
+    queryFn: () => api.get<{ success: boolean; data: TemplateItem[] }>(`/task-templates?limit=100${form.projectId ? `&projectId=${form.projectId}` : ''}`),
+    enabled: open,
   });
 
   const { data: team } = useQuery({
     queryKey: ['sup-team-members'],
-    queryFn: () => api.get<{ success: boolean; data: EmployeeItem[] }>('/employees?limit=100'),
+    queryFn: () => api.get<{ success: boolean; data: EmployeeItem[] }>(`/employees?limit=100${form.projectId ? `&projectId=${form.projectId}` : ''}`),
+    enabled: open,
   });
 
   const { data: projects } = useQuery({
@@ -91,6 +97,15 @@ export default function SupervisorTasksPage() {
           <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input placeholder="جستجوی تسک..." value={search} onChange={(e) => setSearch(e.target.value)} className="pr-10" />
         </div>
+        <Select value={projectFilter} onValueChange={setProjectFilter}>
+          <option value="">همه پروژه‌ها</option>
+          {(projects?.data || []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </Select>
+        <Select value={priority} onValueChange={(v) => setPriority(v === 'all' ? '' : v)}>
+          <option value="all">همه اولویت‌ها</option><option value="LOW">کم</option><option value="MEDIUM">متوسط</option><option value="HIGH">زیاد</option><option value="URGENT">فوری</option>
+        </Select>
+        <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+        <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
         <Select value={status} onValueChange={(v) => setStatus(v === 'all' ? '' : v)}>
           <option value="all">همه وضعیت‌ها</option>
           <option value="PENDING">در انتظار</option>
@@ -108,11 +123,17 @@ export default function SupervisorTasksPage() {
             <DialogHeader><DialogTitle>ایجاد تسک جدید</DialogTitle></DialogHeader>
             <div className="space-y-4">
               <div><Label>قالب تسک *</Label>
+                <Select value={form.projectId} onValueChange={(v) => setForm({ ...form, projectId: v, taskTemplateId: '', employeeId: '' })}>
+                  <option value="">ابتدا پروژه را انتخاب کنید...</option>
+                  {(projects?.data || []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </Select>
+                </div>
+                {form.projectId && <div><Label>تسک اختصاصی پروژه *</Label>
                 <Select value={form.taskTemplateId} onValueChange={(v) => setForm({ ...form, taskTemplateId: v })}>
                   <option value="">انتخاب قالب...</option>
                   {(templates?.data || []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </Select>
-              </div>
+                  </Select>
+                </div>}
               {!employeeId && (
                 <div><Label>کارشناس *</Label>
                   <Select value={form.employeeId} onValueChange={(v) => setForm({ ...form, employeeId: v })}>
@@ -125,12 +146,7 @@ export default function SupervisorTasksPage() {
                 <p className="text-xs text-muted-foreground">کارشناس: {team?.data?.find((e) => e.id === employeeId)?.firstName} {team?.data?.find((e) => e.id === employeeId)?.lastName}</p>
               )}
               <div className="grid grid-cols-2 gap-3">
-                <div><Label>پروژه</Label>
-                  <Select value={form.projectId} onValueChange={(v) => setForm({ ...form, projectId: v })}>
-                    <option value="">بدون پروژه</option>
-                    {(projects?.data || []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </Select>
-                </div>
+                <div><Label>پروژه</Label><p className="rounded-md border bg-muted/30 px-3 py-2 text-sm">{projects?.data?.find((p) => p.id === form.projectId)?.name || '—'}</p></div>
                 <div><Label>اولویت</Label>
                   <Select value={form.priority} onValueChange={(v) => setForm({ ...form, priority: v })}>
                     <option value="LOW">کم</option>

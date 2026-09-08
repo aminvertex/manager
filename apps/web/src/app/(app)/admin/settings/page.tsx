@@ -123,6 +123,17 @@ export default function SettingsPage() {
     queryKey: ['settings'],
     queryFn: () => api.get<{ success: boolean; data: Setting[] }>('/settings'),
   });
+  const { data: categorySetting } = useQuery({
+    queryKey: ['settings-task-categories'],
+    queryFn: () => api.get<{ success: boolean; data: { value: string[] } | null }>('/settings/task_categories'),
+  });
+  const [categoryForm, setCategoryForm] = useState<string[] | null>(null);
+  const categories = categoryForm ?? categorySetting?.data?.value ?? [];
+  const saveCategories = useMutation({
+    mutationFn: () => api.put('/settings/task_categories', { value: categories, category: 'tasks', label: 'دسته‌بندی تسک‌ها' }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['settings-task-categories'] }); toast({ title: 'دسته‌بندی‌ها ذخیره شد' }); },
+    onError: (e) => toast({ title: 'خطا', description: (e as ApiError).message, variant: 'destructive' }),
+  });
 
   const grouped = (settings?.data || []).reduce((acc, s) => {
     if (!acc[s.category]) acc[s.category] = [];
@@ -170,6 +181,14 @@ export default function SettingsPage() {
               )}
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle className="text-base">دسته‌بندی تسک‌ها</CardTitle><CardDescription>این موارد در فرم ایجاد تسک نمایش داده می‌شوند.</CardDescription></CardHeader>
+        <CardContent className="space-y-3">
+          {categories.map((item, index) => <div key={`${item}-${index}`} className="flex gap-2"><Input value={item} disabled={!isAdmin} onChange={(e) => { const next = [...categories]; next[index] = e.target.value; setCategoryForm(next); }} /><Button variant="ghost" size="icon" disabled={!isAdmin} onClick={() => setCategoryForm(categories.filter((_, i) => i !== index))}><Trash2 className="h-4 w-4 text-destructive" /></Button></div>)}
+          {isAdmin && <div className="flex gap-2"><Button variant="outline" onClick={() => setCategoryForm([...categories, 'دسته‌بندی جدید'])}><Plus className="h-4 w-4 ml-1" />افزودن</Button><Button onClick={() => saveCategories.mutate()}><Save className="h-4 w-4 ml-1" />ذخیره</Button></div>}
         </CardContent>
       </Card>
 

@@ -130,7 +130,16 @@ export class EvaluationsService {
     }
     if (query.employeeId) where.employeeId = query.employeeId;
     const [items, total] = await Promise.all([
-      this.prisma.supervisorEvaluation.findMany({ where, skip, take, orderBy: { evaluatedAt: 'desc' }, include: { employee: { select: { id: true, firstName: true, lastName: true } } } }),
+      this.prisma.supervisorEvaluation.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { evaluatedAt: 'desc' },
+        include: {
+          employee: { select: { id: true, firstName: true, lastName: true } },
+          task: { select: { id: true, taskTemplate: { select: { name: true } }, project: { select: { id: true, name: true } } } },
+        },
+      }),
       this.prisma.supervisorEvaluation.count({ where }),
     ]);
     return paginate(items, total, page, limit);

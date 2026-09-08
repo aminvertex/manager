@@ -14,7 +14,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Select } from '@/components/ui/select';
 import { toast } from '@/hooks/use-toast';
-import { TASK_CATEGORIES, INITIAL_PROJECTS } from '@amatis/shared';
+import { TASK_CATEGORIES } from '@amatis/shared';
 import { toPersianDigits } from '@/lib/date';
 
 interface Template {
@@ -36,28 +36,36 @@ export default function TaskTemplatesPage() {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('ALL');
+  const [projectId, setProjectId] = useState('ALL');
   const [open, setOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<Template | null>(null);
   const [form, setForm] = useState({ name: '', category: '', description: '', expectedOutput: '', standardDurationMinutes: 60, priority: 'MEDIUM', projectId: '' });
 
   const { data, isLoading } = useQuery({
-    queryKey: ['task-templates', search, category],
-    queryFn: () => api.get<{ data: Template[] }>(`/task-templates?search=${search}&category=${category === 'ALL' ? '' : category}`),
+    queryKey: ['task-templates', search, category, projectId],
+    queryFn: () => api.get<{ data: Template[] }>(`/task-templates?search=${search}&category=${category === 'ALL' ? '' : category}&projectId=${projectId === 'ALL' ? '' : projectId}`),
   });
 
   const { data: projects } = useQuery({
     queryKey: ['projects-sel'],
     queryFn: () => api.get<{ data: Array<{ id: string; name: string }> }>('/projects?limit=100'),
   });
+  const { data: categorySetting } = useQuery({
+    queryKey: ['task-categories'],
+    queryFn: () => api.get<{ data: { value: string[] } | null }>('/settings/task_categories'),
+  });
+  const categories = categorySetting?.data?.value?.length ? categorySetting.data.value : TASK_CATEGORIES;
 
   const create = useMutation({
-    mutationFn: () => api.post('/task-templates', form),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['task-templates'] }); setOpen(false); setForm({ name: '', category: '', description: '', expectedOutput: '', standardDurationMinutes: 60, priority: 'MEDIUM', projectId: '' }); toast({ title: 'قالب تسک ایجاد شد' }); },
+    mutationFn: () => editingId ? api.patch(`/task-templates/${editingId}`, form) : api.post('/task-templates', form),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['task-templates'] }); setOpen(false); setEditingId(null); setForm({ name: '', category: '', description: '', expectedOutput: '', standardDurationMinutes: 60, priority: 'MEDIUM', projectId: '' }); toast({ title: editingId ? 'تسک ویرایش شد' : 'تسک ایجاد شد' }); },
     onError: (e) => toast({ title: 'خطا', description: (e as ApiError).message, variant: 'destructive' }),
   });
 
   const remove = useMutation({
     mutationFn: (id: string) => api.delete(`/task-templates/${id}`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['task-templates'] }); toast({ title: 'قالب حذف شد' }); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['task-templates'] }); setDeleting(null); toast({ title: 'تسک حذف شد' }); },
     onError: (e) => toast({ title: 'خطا', description: (e as ApiError).message, variant: 'destructive' }),
   });
 
@@ -70,7 +78,7 @@ export default function TaskTemplatesPage() {
           <h1 className="text-2xl font-bold">قالب‌های تسک</h1>
           <p className="text-muted-foreground text-sm">بانک تسک‌های استاندارد</p>
         </div>
-        <Button onClick={() => setOpen(true)}><Plus className="h-4 w-4 ml-2" />قالب جدید</Button>
+        <Button onClick={() => { setEditingId(null); setForm({ name: '', category: '', description: '', expectedOutput: '', standardDurationMinutes: 60, priority: 'MEDIUM', projectId: '' }); setOpen(true); }}><Plus className="h-4 w-4 ml-2" />تسک جدید</Button>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3">
@@ -80,7 +88,11 @@ export default function TaskTemplatesPage() {
         </div>
         <Select value={category} onValueChange={setCategory}>
           <option value="ALL">همه دسته‌ها</option>
-          {TASK_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+          {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+        </Select>
+        <Select value={projectId} onValueChange={setProjectId}>
+          <option value="ALL">همه پروژه‌ها</option>
+          {(projects?.data || []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </Select>
       </div>
 
@@ -94,7 +106,7 @@ export default function TaskTemplatesPage() {
       ) : (
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
           {filtered.map((t) => (
-            <Card key={t.id}>
+            <Card key={t.id} className="group transition-all hover:-translate-y-1 hover:shadow-xl">
               <CardHeader className="pb-2">
                 <div className="flex justify-between items-start gap-2">
                   <CardTitle className="text-base line-clamp-1">{t.name}</CardTitle>
@@ -109,8 +121,8 @@ export default function TaskTemplatesPage() {
                   {t.requiresSupervisorApproval && <Badge className="bg-warning/15 text-warning">نیاز به تأیید</Badge>}
                 </div>
                 <div className="flex justify-end gap-2 pt-2">
-                  <Button size="icon" variant="ghost" onClick={() => { /* edit */ }}><Pencil className="h-4 w-4" /></Button>
-                  <Button size="icon" variant="ghost" className="text-destructive" onClick={() => remove.mutate(t.id)}><Trash2 className="h-4 w-4" /></Button>
+                  <Button size="icon" variant="ghost" onClick={() => { setEditingId(t.id); setForm({ name: t.name, category: t.category, description: t.description || '', expectedOutput: t.expectedOutput || '', standardDurationMinutes: t.standardDurationMinutes || 60, priority: t.priority, projectId: '' }); setOpen(true); }}><Pencil className="h-4 w-4" /></Button>
+                  <Button size="icon" variant="ghost" className="text-destructive" onClick={() => setDeleting(t)}><Trash2 className="h-4 w-4" /></Button>
                 </div>
               </CardContent>
             </Card>
@@ -121,7 +133,7 @@ export default function TaskTemplatesPage() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>قالب تسک جدید</DialogTitle>
+            <DialogTitle>{editingId ? 'ویرایش تسک' : 'تسک جدید'}</DialogTitle>
             <DialogDescription>یک قالب استاندارد به بانک تسک‌ها اضافه کنید</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -132,7 +144,7 @@ export default function TaskTemplatesPage() {
             <div className="space-y-2">
               <Label>دسته‌بندی *</Label>
               <Select value={form.category} onValueChange={(v) => setForm({ ...form, category: v })}>
-                {TASK_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                {categories.map((c) => <option key={c} value={c}>{c}</option>)}
               </Select>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -167,8 +179,17 @@ export default function TaskTemplatesPage() {
             </div>
             <Button className="w-full" disabled={!form.name.trim() || !form.category || create.isPending} onClick={() => create.mutate()}>
               {create.isPending && <Loader2 className="h-4 w-4 animate-spin ml-2" />}
-              ایجاد قالب
+              {editingId ? 'ذخیره تغییرات' : 'ایجاد تسک'}
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!deleting} onOpenChange={(value) => !value && setDeleting(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>حذف تسک</DialogTitle><DialogDescription>آیا از حذف «{deleting?.name}» مطمئن هستید؟ این عملیات قابل بازگشت نیست.</DialogDescription></DialogHeader>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setDeleting(null)}>انصراف</Button>
+            <Button variant="destructive" onClick={() => deleting && remove.mutate(deleting.id)} disabled={remove.isPending}>{remove.isPending && <Loader2 className="h-4 w-4 animate-spin ml-2" />} حذف قطعی</Button>
           </div>
         </DialogContent>
       </Dialog>

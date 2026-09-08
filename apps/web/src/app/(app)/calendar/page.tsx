@@ -46,11 +46,6 @@ export default function CalendarPage() {
     queryFn: () => api.get<{ data: TaskItem[] }>('/tasks?limit=500'),
   });
 
-  const { data: templates } = useQuery({
-    queryKey: ['calendar-templates'],
-    queryFn: () => api.get<{ success: boolean; data: TemplateItem[] }>('/task-templates?limit=100'),
-  });
-
   const tasksByDate: Record<string, TaskItem[]> = {};
   (data?.data || []).forEach((t) => {
     if (!t.deadline) return;
@@ -201,37 +196,13 @@ export default function CalendarPage() {
                     taskName: form.personalTitle,
                     notes: form.personalDesc,
                     isPersonal: true,
-                    priority: form.priority,
+                    employeeId: user?.employeeProfile?.id,
                     deadline: selectedDate ? new Date(selectedDate + 'T12:00:00').toISOString() : undefined,
                   })}
                 >
                   <Plus className="h-4 w-4 ml-2" /> افزودن تسک شخصی
                 </Button>
               </div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground"><span className="h-px flex-1 bg-border" />یا<span className="h-px flex-1 bg-border" /></div>
-              <div>
-                <Label>قالب تسک (سازمانی)</Label>
-                <Select value={form.taskTemplateId} onValueChange={(v) => setForm({ ...form, taskTemplateId: v })}>
-                  <option value="">انتخاب قالب...</option>
-                  {(templates?.data || []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </Select>
-              </div>
-              <div>
-                <Label>اولویت</Label>
-                <Select value={form.priority} onValueChange={(v) => setForm({ ...form, priority: v })}>
-                  <option value="LOW">کم</option>
-                  <option value="MEDIUM">متوسط</option>
-                  <option value="HIGH">زیاد</option>
-                  <option value="URGENT">فوری</option>
-                </Select>
-              </div>
-              <Button
-                className="w-full"
-                disabled={!form.taskTemplateId}
-                onClick={() => createTask.mutate({ taskTemplateId: form.taskTemplateId, priority: form.priority, deadline: selectedDate ? new Date(selectedDate + 'T12:00:00').toISOString() : undefined })}
-              >
-                <Plus className="h-4 w-4 ml-2" /> افزودن تسک سازمانی
-              </Button>
             </div>
           </div>
         </DialogContent>
