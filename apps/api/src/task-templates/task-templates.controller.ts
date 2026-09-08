@@ -32,13 +32,13 @@ export class TaskTemplatesController {
   }
 
   @Patch(':id')
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SUPERVISOR)
+  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SUPERVISOR, RoleCode.CEO, RoleCode.TECH_COMMITTEE_MANAGER)
   update(@Param('id') id: string, @Body() dto: UpdateTaskTemplateDto, @GetUser() user: JwtPayload) {
     return this.service.update(id, dto, user);
   }
 
   @Delete(':id')
-  @Roles(RoleCode.SUPER_ADMIN)
+  @Roles(RoleCode.SUPER_ADMIN, RoleCode.CEO, RoleCode.TECH_COMMITTEE_MANAGER, RoleCode.SUPERVISOR)
   delete(@Param('id') id: string, @GetUser() user: JwtPayload) {
     return this.service.softDelete(id, user);
   }

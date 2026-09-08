@@ -1,22 +1,26 @@
 ﻿'use client';
 
 import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
 import { api } from '@/lib/api';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Award, Users, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Award, Eye } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { RoleCode } from '@amatis/types';
 import { toJalaliDateTime, toPersianDigits } from '@/lib/date';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 export default function EvaluationsPage() {
   const { hasRole } = useAuth();
   const isSupervisor = hasRole(RoleCode.SUPERVISOR) || hasRole(RoleCode.SUPER_ADMIN);
 
+  const [selected, setSelected] = useState<any>(null);
   const { data, isLoading } = useQuery({
     queryKey: ['evaluations'],
-    queryFn: () => api.get<{ data: Array<{ id: string; result: string; score100: number | null; comment: string | null; evaluatedAt: string; employee: { firstName: string; lastName: string } }> }>('/evaluations?limit=50'),
+    queryFn: () => api.get<{ data: Array<{ id: string; result: string; score100: number | null; comment: string | null; evaluatedAt: string; employee: { firstName: string; lastName: string }; task?: { taskTemplate?: { name: string } | null; project?: { name: string } | null }; scores?: Record<string, number> }> }>('/evaluations?limit=50'),
     enabled: isSupervisor,
   });
 
@@ -41,7 +45,7 @@ export default function EvaluationsPage() {
       ) : (
         <div className="space-y-3">
           {data.data.map((e) => (
-            <Card key={e.id}>
+            <Card key={e.id} className="transition-all hover:-translate-y-0.5 hover:shadow-md">
               <CardContent className="flex items-center justify-between p-4">
                 <div>
                   <p className="font-medium">{e.employee.firstName} {e.employee.lastName}</p>
@@ -52,12 +56,31 @@ export default function EvaluationsPage() {
                     {toPersianDigits(e.score100 ?? 0)}
                   </Badge>
                   <Badge variant="outline">{resultLabels[e.result] || e.result}</Badge>
+                  <Button size="sm" variant="ghost" onClick={() => setSelected(e)}><Eye className="h-4 w-4 ml-1" />مشاهده جزئیات</Button>
                 </div>
               </CardContent>
             </Card>
           ))}
         </div>
       )}
+      <Dialog open={!!selected} onOpenChange={(open) => !open && setSelected(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>جزئیات ارزیابی</DialogTitle></DialogHeader>
+          {selected && (
+            <div className="space-y-4 text-sm">
+              <div className="rounded-lg bg-muted/40 p-3">
+                <p className="font-semibold">{selected.task?.taskTemplate?.name || 'تسک'}</p>
+                <p className="text-muted-foreground">{selected.task?.project?.name || 'بدون پروژه'}</p>
+              </div>
+              <p>کارشناس: {selected.employee.firstName} {selected.employee.lastName}</p>
+              <p>امتیاز نهایی: <strong>{toPersianDigits(selected.score100 ?? 0)} از ۱۰۰</strong></p>
+              {selected.scores && <div className="grid grid-cols-2 gap-2">{Object.entries(selected.scores).map(([key, value]) => <div key={key} className="rounded border p-2">{key}: {String(value)}</div>)}</div>}
+              {selected.comment && <p className="rounded border p-3">{selected.comment}</p>}
+              <p className="text-xs text-muted-foreground">{toJalaliDateTime(selected.evaluatedAt)}</p>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

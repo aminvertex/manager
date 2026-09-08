@@ -43,7 +43,7 @@ export default function MyPerformancePage() {
 
   const { data: tasks } = useQuery({
     queryKey: ['my-tasks-perf'],
-    queryFn: () => api.get<{ data: Array<{ status: string; qualityScore: number | null; revisionCount: number }> }>('/tasks?limit=200'),
+    queryFn: () => api.get<{ data: Array<{ status: string; qualityScore: number | null; revisionCount: number; createdAt?: string }> }>('/tasks?limit=200'),
   });
 
   const { data: evals } = useQuery({
@@ -79,6 +79,19 @@ export default function MyPerformancePage() {
   const latestEval = (evals || [])[0];
   const score = latestEval?.score ?? null;
   const selfScore = latestEval?.selfScore ?? null;
+  const now = new Date();
+  const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const weekStart = dayStart - ((now.getDay() + 6) % 7) * 86400000;
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const completionRate = (from: number) => {
+    const items = (tasks?.data || []).filter((t) => t.createdAt && new Date(t.createdAt).getTime() >= from);
+    return items.length ? Math.round(items.filter((t) => t.status === 'APPROVED').length / items.length * 100) : null;
+  };
+  const periodKpis = [
+    { label: 'امروز', value: completionRate(dayStart) },
+    { label: 'این هفته', value: completionRate(weekStart) },
+    { label: 'ماه تا امروز', value: completionRate(monthStart) },
+  ];
 
   const trendData = (trend || []).map((t) => ({
     ...t,
@@ -116,6 +129,12 @@ export default function MyPerformancePage() {
           </CardContent>
         </Card>
       </div>
+      <Card>
+        <CardHeader><CardTitle className="text-base">KPI بازه‌ای</CardTitle><CardDescription>نرخ تکمیل تسک‌های همان بازه؛ KPI ماهانه با داده‌های ثبت‌شده تا امروز محاسبه می‌شود.</CardDescription></CardHeader>
+        <CardContent className="grid gap-3 sm:grid-cols-3">
+          {periodKpis.map((item) => <div key={item.label} className="rounded-xl border bg-muted/20 p-4"><p className="text-sm text-muted-foreground">{item.label}</p><p className="mt-1 text-2xl font-bold">{item.value == null ? '—' : `${toPersianDigits(item.value)}٪`}</p></div>)}
+        </CardContent>
+      </Card>
 
       {dataFlow?.flow && (
         <Card>
