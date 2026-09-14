@@ -133,14 +133,17 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const stored = localStorage.getItem('lang') as Lang | null;
-    if (stored) setLangState(stored);
+    if (stored === 'fa' || stored === 'en') setLangState(stored);
   }, []);
+
+  useEffect(() => {
+    document.documentElement.lang = lang;
+    document.documentElement.dir = lang === 'fa' ? 'rtl' : 'ltr';
+  }, [lang]);
 
   const setLang = useCallback((l: Lang) => {
     setLangState(l);
     localStorage.setItem('lang', l);
-    document.documentElement.lang = l === 'fa' ? 'fa' : 'en';
-    document.documentElement.dir = l === 'fa' ? 'rtl' : 'ltr';
   }, []);
 
   const t = useCallback((key: string) => {
