@@ -99,18 +99,19 @@ export function Sidebar() {
   const profile = user?.employeeProfile;
 
   return (
-    <aside className="fixed top-0 right-0 z-40 h-screen w-[var(--sidebar-width)] border-l bg-card flex flex-col">
-      <div className="flex items-center gap-3 px-6 py-5 border-b">
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+    <aside className="fixed top-0 right-0 z-40 flex h-screen w-[var(--sidebar-width)] flex-col border-l border-border/70 bg-card/90 shadow-2xl shadow-primary/5 backdrop-blur-xl">
+      <div className="relative flex items-center gap-3 overflow-hidden border-b border-border/70 px-6 py-5">
+        <div className="pointer-events-none absolute -right-10 -top-10 h-28 w-28 rounded-full bg-primary/10 blur-2xl" />
+        <div className="relative flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-indigo-600 text-primary-foreground shadow-lg shadow-primary/25">
           <Brain className="h-5 w-5" />
         </div>
-        <div>
-          <h1 className="font-bold text-lg">آماتیس</h1>
+        <div className="relative">
+          <h1 className="text-lg font-extrabold tracking-tight">آماتیس</h1>
           <p className="text-xs text-muted-foreground">راشا آماتیس</p>
         </div>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
+      <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
         {filteredItems.map((item) => {
           const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
           return (
@@ -118,13 +119,13 @@ export function Sidebar() {
               key={item.key}
               href={item.href}
               className={cn(
-                'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+                'group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200',
                 isActive
-                  ? 'bg-primary/10 text-primary'
-                  : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+                  ? 'bg-primary/10 text-primary shadow-sm ring-1 ring-primary/10'
+                  : 'text-muted-foreground hover:-translate-x-0.5 hover:bg-accent hover:text-accent-foreground',
               )}
             >
-              <item.icon className="h-4 w-4 shrink-0" />
+              <item.icon className={cn('h-4 w-4 shrink-0 transition-transform group-hover:scale-110', isActive && 'text-primary')} />
               <span className="flex-1">{t(item.labelKey || item.label)}</span>
               {item.key === 'chat' && chatUnread > 0 && (
                 <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-white">
@@ -136,9 +137,9 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div className="border-t p-4">
+      <div className="border-t border-border/70 bg-muted/20 p-4">
         <div className="flex items-center gap-3 mb-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-medium overflow-hidden">
+          <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-primary/20 to-indigo-500/20 text-sm font-medium text-primary ring-2 ring-background">
             {profile?.avatarUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={resolveAvatarUrl(profile.avatarUrl)} alt="" className="h-full w-full object-cover" />
@@ -188,16 +189,16 @@ function NotificationBell() {
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   return (
-    <div className="min-h-screen bg-muted/30">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.08),transparent_35%),hsl(var(--background))]">
       <Sidebar />
       <div className="mr-[var(--sidebar-width)]">
-        <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b bg-background/95 backdrop-blur px-6">
+        <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b border-border/70 bg-background/75 px-6 backdrop-blur-xl">
           <div className="flex-1" />
           <LangToggle />
           <ThemeToggle />
           <NotificationBell />
         </header>
-        <main className="p-6">{children}</main>
+        <main className="mx-auto max-w-[1600px] p-4 md:p-6 lg:p-8">{children}</main>
       </div>
     </div>
   );
